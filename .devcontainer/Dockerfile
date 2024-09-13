@@ -1,6 +1,10 @@
 # https://hub.docker.com/_/fedora
 FROM fedora:38
 
+dnf install -y dnf-plugins-core
+dnf config-manager --add-repo https://rpm.releases.hashicorp.com/fedora/hashicorp.repo
+
+
 # update and install OS packages
 RUN dnf -y update && dnf -y groupinstall "Development Tools" && \
     dnf -y install \
