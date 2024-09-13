@@ -1,8 +1,8 @@
 # https://hub.docker.com/_/fedora
 FROM fedora:38
 
-RUN dnf install -y dnf-plugins-core
-RUN dnf config-manager --add-repo https://rpm.releases.hashicorp.com/fedora/hashicorp.repo
+# RUN dnf install -y dnf-plugins-core
+# RUN dnf config-manager --add-repo https://rpm.releases.hashicorp.com/fedora/hashicorp.repo
 
 
 # update and install OS packages
@@ -17,8 +17,8 @@ RUN dnf -y update && dnf -y groupinstall "Development Tools" && \
     vim \
     unzip \
     curl \
-    git \
-    packer
+    git
+    # packer
 
 # install requirements
 COPY requirements.txt requirements.txt
