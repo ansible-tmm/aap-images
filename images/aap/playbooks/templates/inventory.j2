@@ -1,0 +1,72 @@
+# This is the AAP installer inventory file
+# Please consult the docs if you're unsure what to add
+# For all optional variables please consult the included README.md
+
+# This section is for your AAP Controller host(s)
+# -------------------------------------------------
+[automationcontroller]
+{{ installer_fqdn_hostname }} ansible_connection=local
+
+# This section is for your AAP Automation Hub host(s)
+# -----------------------------------------------------
+[automationhub]
+{{ installer_fqdn_hostname }} ansible_connection=local
+
+# This section is for your AAP EDA Controller host(s)
+# -----------------------------------------------------
+[automationeda]
+{{ installer_fqdn_hostname }} ansible_connection=local
+
+# This section is for your AAP Gateway host(s)
+# -----------------------------------------------------
+[automationgateway]
+{{ installer_fqdn_hostname }} ansible_connection=local
+
+# This section is for your AAP Execution host(s)
+# ------------------------------------------------
+#[execution_nodes]
+#fqdn_of_your_rhel_host
+
+# This section is for the AAP database(s)
+# -----------------------------------------
+[database]
+{{ installer_fqdn_hostname }} ansible_connection=local
+
+# This section is for the AAP redis cluster
+# -----------------------------------------
+[redis]
+{{ installer_fqdn_hostname }} ansible_connection=local
+
+[all:vars]
+
+# Common variables needed for installation
+postgresql_admin_username=postgres
+postgresql_admin_password={{ installer_admin_pw }}
+registry_username={{ installer_registry_username }}
+registry_password={{ installer_registry_password }}
+redis_mode=standalone
+
+# AAP Controller - mandatory
+controller_admin_password={{ installer_admin_pw }}
+controller_pg_host={{ installer_fqdn_hostname }}
+controller_pg_password={{ installer_admin_pw }}
+controller_postinstall=true
+controller_license_file=/tmp/manifest.zip
+controller_postinstall_dir=/tmp/config
+
+# AAP Automation Hub - mandatory
+hub_admin_password={{ installer_admin_pw }}
+hub_pg_host={{ installer_fqdn_hostname }}
+hub_pg_password={{ installer_admin_pw }}
+automationhub_seed_collections=true
+automationhub_collection_seed_repository=validated
+
+# AAP EDA Controller - mandatory
+eda_admin_password={{ installer_admin_pw }}
+eda_pg_host={{ installer_fqdn_hostname }}
+eda_pg_password={{ installer_admin_pw }}
+
+# AAP Gateway - mandatory
+gateway_admin_password={{ installer_admin_pw }}
+gateway_pg_host={{ installer_fqdn_hostname }}
+gateway_pg_password={{ installer_admin_pw }}

@@ -1,0 +1,50 @@
+---
+- name: (POST INSTALL) - Configure AAP
+  hosts: all
+  tasks:
+
+    - &tower-pinger-block
+      block:
+        - name: check Tower status
+          shell: "curl --user 'admin:{{ installer_admin_pw }}' -vkL -XGET https://localhost/api/controller/v2/ping/"
+          register: check2
+        - name: Display /api/v2/ping results (stdout)
+          debug:
+            msg: '{{ check2.stdout }}'
+        # - name: Display /api/v2/ping results (stderr)
+        #   debug:
+        #     msg: '{{ check2.stderr }}'
+
+    - name: change ansible tower base URL
+      block:
+        - &tower-baseurl-task
+          ansible.builtin.uri:
+            url: "https://{{ installer_fqdn_hostname }}/api/controller/v2/settings/system/"
+            method: PATCH
+            headers:
+              Content-Type: "application/json"
+            user: "admin"
+            password: "{{ installer_admin_pw }}"
+            force_basic_auth: yes
+            body_format: json
+            body:
+              TOWER_URL_BASE: "https://localhost"
+            validate_certs: false
+          register: result
+          retries: 12
+          delay: 5
+
+      rescue:
+        - *tower-pinger-block
+
+        - <<: *tower-baseurl-task
+          name: Run failed task again
+
+    - name: Cleanup
+      ansible.builtin.file:
+        path: /tmp/manifest.zip
+        state: absent
+
+    - ansible.builtin.file:
+        path: /tmp/ansible-automation-platform-containerized-setup-2.5-1/inventory.custom
+        state: absent

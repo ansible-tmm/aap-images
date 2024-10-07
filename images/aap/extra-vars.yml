@@ -1,0 +1,11 @@
+---
+### Installer
+installer_admin_pw:          "{{ lookup('env', 'INSTALLER_ADMIN_PW') | default('YOUR_PASSWORD', true) }}"
+installer_fqdn_hostname:     "{{ lookup('env', 'INSTALLER_FQDN_HOSTNAME') | default('aap.example.org', true) }}"
+installer_registry_username: "{{ lookup('env', 'INSTALLER_REGISTRY_USERNAME') | default('YOUR_REGISTRY_USERNAME', true) }}"
+installer_registry_password: "{{ lookup('env', 'INSTALLER_REGISTRY_PASSWORD') | default('YOUR_REGISTRY_PASSWORD', true) }}"
+###
+
+### Others
+GPG_PASSPHRASE:              "{{ lookup('env', 'GPG_PASSPHRASE') | default('YOUR_PASSPHRASE', true) }}"
+###
