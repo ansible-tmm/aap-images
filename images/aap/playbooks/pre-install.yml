@@ -2,7 +2,7 @@
 - name: (PRE INSTALL) - Configure RHEL VM for AAP containerized install
   hosts: all
   vars:
-    local_installer_path: "/workspaces/aap-images/images/aap/installers/ansible-automation-platform-containerized-setup-2.5-1.tar.gz"
+    local_installer_path: "/workspaces/aap-images/images/aap/installers/ansible-automation-platform-containerized-setup-2.5-2.tar.gz"
     remote_installer_path: "/tmp/ansible-automation-platform-installer.tar.gz"
 
   tasks:
@@ -44,7 +44,7 @@
     - name: Generate AAP installer inventory file
       ansible.builtin.template:
         src: templates/inventory.j2
-        dest: /tmp/ansible-automation-platform-containerized-setup-2.5-1/inventory.custom
+        dest: /tmp/ansible-automation-platform-containerized-setup-2.5-2/inventory.custom
 
     - name: Copy manifest.zip.gpg to AAP VM
       ansible.builtin.copy:
