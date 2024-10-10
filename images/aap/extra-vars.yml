@@ -4,8 +4,12 @@ installer_admin_pw:          "{{ lookup('env', 'INSTALLER_ADMIN_PW') | default('
 installer_fqdn_hostname:     "{{ lookup('env', 'INSTALLER_FQDN_HOSTNAME') | default('aap.example.org', true) }}"
 installer_registry_username: "{{ lookup('env', 'INSTALLER_REGISTRY_USERNAME') | default('YOUR_REGISTRY_USERNAME', true) }}"
 installer_registry_password: "{{ lookup('env', 'INSTALLER_REGISTRY_PASSWORD') | default('YOUR_REGISTRY_PASSWORD', true) }}"
+aap_include_controller:      true
+aap_include_eda_controller:  false
+aap_include_automation_hub:  false
 ###
 
 ### Others
 GPG_PASSPHRASE:              "{{ lookup('env', 'GPG_PASSPHRASE') | default('YOUR_PASSPHRASE', true) }}"
 ###
+

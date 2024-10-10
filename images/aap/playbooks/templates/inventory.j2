@@ -7,15 +7,19 @@
 [automationcontroller]
 {{ installer_fqdn_hostname }} ansible_connection=local
 
-# This section is for your AAP Automation Hub host(s)
-# -----------------------------------------------------
-[automationhub]
-{{ installer_fqdn_hostname }} ansible_connection=local
-
+{% if aap_include_eda_controller|bool %}
 # This section is for your AAP EDA Controller host(s)
 # -----------------------------------------------------
 [automationeda]
 {{ installer_fqdn_hostname }} ansible_connection=local
+{% endif %}
+
+{% if aap_include_automation_hub|bool %}
+# This section is for your AAP Automation Hub host(s)
+# -----------------------------------------------------
+[automationhub]
+{{ installer_fqdn_hostname }} ansible_connection=local
+{% endif %}
 
 # This section is for your AAP Gateway host(s)
 # -----------------------------------------------------
@@ -54,17 +58,21 @@ controller_postinstall=true
 controller_license_file=/tmp/manifest.zip
 controller_postinstall_dir=/tmp/config
 
+{% if aap_include_eda_controller|bool %}
+# AAP EDA Controller - mandatory
+eda_admin_password={{ installer_admin_pw }}
+eda_pg_host={{ installer_fqdn_hostname }}
+eda_pg_password={{ installer_admin_pw }}
+{% endif %}
+
+{% if aap_include_automation_hub|bool %}
 # AAP Automation Hub - mandatory
 hub_admin_password={{ installer_admin_pw }}
 hub_pg_host={{ installer_fqdn_hostname }}
 hub_pg_password={{ installer_admin_pw }}
 automationhub_seed_collections=true
 automationhub_collection_seed_repository=validated
-
-# AAP EDA Controller - mandatory
-eda_admin_password={{ installer_admin_pw }}
-eda_pg_host={{ installer_fqdn_hostname }}
-eda_pg_password={{ installer_admin_pw }}
+{% endif %}
 
 # AAP Gateway - mandatory
 gateway_admin_password={{ installer_admin_pw }}
