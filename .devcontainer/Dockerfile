@@ -4,8 +4,8 @@ FROM fedora:38
 # RUN dnf install -y dnf-plugins-core
 # RUN dnf config-manager --add-repo https://rpm.releases.hashicorp.com/fedora/hashicorp.repo
 
-# add google cloud cli repo
-RUN tee -a /etc/yum.repos.d/google-cloud-sdk.repo << EOM
+# Add google cloud cli repo
+RUN tee -a /etc/yum.repos.d/google-cloud-sdk.repo << 'EOM'
 [google-cloud-cli]
 name=Google Cloud CLI
 baseurl=https://packages.cloud.google.com/yum/repos/cloud-sdk-el9-x86_64
@@ -14,7 +14,6 @@ gpgcheck=1
 repo_gpgcheck=0
 gpgkey=https://packages.cloud.google.com/yum/doc/rpm-package-key.gpg
 EOM
-
 
 # update and install OS packages
 RUN dnf -y update && dnf -y groupinstall "Development Tools" && \
