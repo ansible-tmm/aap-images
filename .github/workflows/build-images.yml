@@ -1,0 +1,52 @@
+name: Build All AAP Image Flavors
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        flavor: [C, CE, CH, CEH]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Packer
+        uses: hashicorp/setup-packer@v2
+        with:
+          packer_version: latest
+
+      - name: Set build variables based on flavor
+        run: |
+          if [[ "${{ matrix.flavor }}" == "C" ]]; then
+            export AAP_INCLUDE_CONTROLLER=true
+            export AAP_INCLUDE_EDA_CONTROLLER=false
+            export AAP_INCLUDE_AUTOMATION_HUB=false
+          elif [[ "${{ matrix.flavor }}" == "CE" ]]; then
+            export AAP_INCLUDE_CONTROLLER=true
+            export AAP_INCLUDE_EDA_CONTROLLER=true
+            export AAP_INCLUDE_AUTOMATION_HUB=false
+          elif [[ "${{ matrix.flavor }}" == "CH" ]]; then
+            export AAP_INCLUDE_CONTROLLER=true
+            export AAP_INCLUDE_EDA_CONTROLLER=false
+            export AAP_INCLUDE_AUTOMATION_HUB=true
+          elif [[ "${{ matrix.flavor }}" == "CEH" ]]; then
+            export AAP_INCLUDE_CONTROLLER=true
+            export AAP_INCLUDE_EDA_CONTROLLER=true
+            export AAP_INCLUDE_AUTOMATION_HUB=true
+          fi
+
+          echo "AAP_INCLUDE_CONTROLLER=${AAP_INCLUDE_CONTROLLER}" >> $GITHUB_ENV
+          echo "AAP_INCLUDE_EDA_CONTROLLER=${AAP_INCLUDE_EDA_CONTROLLER}" >> $GITHUB_ENV
+          echo "AAP_INCLUDE_AUTOMATION_HUB=${AAP_INCLUDE_AUTOMATION_HUB}" >> $GITHUB_ENV
+
+      - name: Build AAP Image
+        run: |
+          packer build -var "aap_include_controller=${AAP_INCLUDE_CONTROLLER}" \
+                       -var "aap_include_eda_controller=${AAP_INCLUDE_EDA_CONTROLLER}" \
+                       -var "aap_include_automation_hub=${AAP_INCLUDE_AUTOMATION_HUB}" \
+                       images/packer/aap.pkr.hcl
