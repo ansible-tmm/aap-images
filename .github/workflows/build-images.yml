@@ -3,6 +3,10 @@ name: Build All AAP Image Flavors
 on:
   workflow_dispatch:
 
+env:
+  PACKER_VERSION: "1.12.2" # or: "latest"
+  PACKER_FILE: ./images/packer/aap.pkr.hcl
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -16,9 +20,17 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Set up Packer
-        uses: hashicorp/setup-packer@v2
+        uses: hashicorp/setup-packer@main
         with:
-          packer_version: latest
+          version: ${{ env.PACKER_VERSION }}
+
+      - name: Run `packer init`
+        id: init
+        run: "packer init ${{ PACKER_FILE }}"
+
+      - name: Run `packer validate`
+        id: validate
+        run: "packer validate ${{ PACKER_FILE }}"
 
       - name: Set build variables based on flavor
         run: |
@@ -49,4 +61,4 @@ jobs:
           packer build -var "aap_include_controller=${AAP_INCLUDE_CONTROLLER}" \
                        -var "aap_include_eda_controller=${AAP_INCLUDE_EDA_CONTROLLER}" \
                        -var "aap_include_automation_hub=${AAP_INCLUDE_AUTOMATION_HUB}" \
-                       images/packer/aap.pkr.hcl
+                       ${{ PACKER_FILE }}
