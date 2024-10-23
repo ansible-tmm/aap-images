@@ -26,11 +26,11 @@ jobs:
 
       - name: Run `packer init`
         id: init
-        run: "packer init ${{ PACKER_FILE }}"
+        run: "packer init ${{ env.PACKER_FILE }}"
 
       - name: Run `packer validate`
         id: validate
-        run: "packer validate ${{ PACKER_FILE }}"
+        run: "packer validate ${{ env.PACKER_FILE }}"
 
       - name: Set build variables based on flavor
         run: |
@@ -61,4 +61,4 @@ jobs:
           packer build -var "aap_include_controller=${AAP_INCLUDE_CONTROLLER}" \
                        -var "aap_include_eda_controller=${AAP_INCLUDE_EDA_CONTROLLER}" \
                        -var "aap_include_automation_hub=${AAP_INCLUDE_AUTOMATION_HUB}" \
-                       ${{ PACKER_FILE }}
+                       ${{ env.PACKER_FILE }}
