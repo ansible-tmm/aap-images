@@ -1,3 +1,13 @@
+packer {
+  required_plugins {
+    happycloud = {
+      version = ">= 2.7.0"
+      source = "github.com/hashicorp/happycloud"
+    }
+  }
+}
+
+
 variable "project_id" {
     type    = string
     default = "red-hat-mbu"
