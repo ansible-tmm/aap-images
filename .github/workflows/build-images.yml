@@ -19,6 +19,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
 
+    - name: GCP auth setup
+      uses: google-github-actions/auth@v0 
+      with:
+        credentials_json: '${{ secrets.GCLOUD_SA_KEY }}'
+
       - name: Set up Packer
         uses: hashicorp/setup-packer@main
         with:
