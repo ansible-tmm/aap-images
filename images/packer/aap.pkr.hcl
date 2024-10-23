@@ -1,8 +1,12 @@
 packer {
   required_plugins {
-    happycloud = {
-      version = ">= 2.7.0"
-      source = "github.com/hashicorp/happycloud"
+    ansible = {
+      version = ">= v1.1.2"
+      source = "github.com/hashicorp/ansible"
+    }
+    gcloud = {
+      version = ">= v1.1.6"
+      source = "github.com/hashicorp/googlecompute"
     }
   }
 }
