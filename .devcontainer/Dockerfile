@@ -31,8 +31,13 @@ RUN dnf -y update && dnf -y groupinstall "Development Tools" && \
     google-cloud-cli
     # packer
 
-# Install packer
+# Install packer and unzip
 RUN wget https://releases.hashicorp.com/packer/1.11.2/packer_1.11.2_linux_amd64.zip
+RUN unzip packer_1.11.2_linux_amd64.zip
+
+# Install packer plugins
+RUN packer plugins install github.com/hashicorp/ansible
+RUN packer plugins install github.com/hashicorp/googlecompute
 
 # install requirements
 COPY requirements.txt requirements.txt
