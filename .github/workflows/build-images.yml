@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 env:
-  PACKER_VERSION: "1.12.2" # or: "latest"
+  PACKER_VERSION: "latest" # or: "latest"
   PACKER_FILE: ./images/packer/aap.pkr.hcl
 
 jobs:
