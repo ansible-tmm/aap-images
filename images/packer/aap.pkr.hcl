@@ -122,8 +122,8 @@ build {
     // Platform install
     provisioner "shell" {
         inline = [
-            "cd /tmp/ansible-automation-platform-containerized-setup-2.5-2",
-            "ANSIBLE_COLLECTIONS_PATH=/tmp/ansible-automation-platform-containerized-setup-2.5-2/collections ansible-playbook -v -i inventory.custom ansible.containerized_installer.install"
+            "cd /tmp/ansible-automation-platform-containerized-setup",
+            "ANSIBLE_COLLECTIONS_PATH=/tmp/ansible-automation-platform-containerized-setup/collections ansible-playbook -v -i inventory.custom ansible.containerized_installer.install"
         ]
     }
 
