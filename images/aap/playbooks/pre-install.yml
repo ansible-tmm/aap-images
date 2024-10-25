@@ -79,7 +79,7 @@
 
     - name: Copy manifest.zip.gpg to AAP VM
       ansible.builtin.copy:
-        src: "{{ playbook_dir }}../files/manifest.zip.gpg
+        src: "{{ playbook_dir }}../files/manifest.zip.gpg"
         dest: /tmp/manifest.zip.gpg
 
     - name: Create manifest.zip
