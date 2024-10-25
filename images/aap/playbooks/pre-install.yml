@@ -1,7 +1,6 @@
 ---
 - name: (PRE INSTALL) - Configure RHEL VM for AAP containerized install
-  hosts: localhost
-  connection: local
+  hosts: all
   vars:
     installer_directory: /tmp/ansible-automation-platform-containerized-setup
     installer_url: "{{ lookup('env', 'INSTALLER_URL') | default('CHANGEME', true) }}"
