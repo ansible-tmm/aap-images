@@ -1,9 +1,10 @@
 ---
 - name: (PRE INSTALL) - Configure RHEL VM for AAP containerized install
-  hosts: all
+  hosts: localhost
+  connection: local
   vars:
-    local_installer_path: "/workspaces/aap-images/images/aap/installers/ansible-automation-platform-containerized-setup-2.5-2.tar.gz"
-    remote_installer_path: "/tmp/ansible-automation-platform-installer.tar.gz"
+    installer_directory: /tmp/ansible-automation-platform-containerized-setup
+    installer_url: "{{ lookup('env', 'INSTALLER_URL') | default('INSTALLER_URL', true) }}"
 
   tasks:
 
@@ -30,21 +31,51 @@
         state: present
       become: true
 
-    - name: Copy Ansible Automation Platform installer to AAP VM
+    - name: Download Ansible Automation Platform installer
+      ansible.builtin.get_url:
+        url: "{{ installer_url }}"
+        dest: "{{ installer_directory }}.tar.gz"
+
+    - name: Manually extract the installer
+      ansible.builtin.command:
+        cmd: "tar -xf {{ installer_directory }}.tar.gz -C /tmp/"
+
+    - name: Find the top-level extracted directory matching the expected pattern
+      ansible.builtin.find:
+        paths: "/tmp/"
+        patterns: "ansible-automation-platform-containerized-setup-*"
+        file_type: directory
+        recurse: false
+      register: extracted_dir
+
+    - name: Debug the found directory path
+      ansible.builtin.debug:
+        var: extracted_dir.files
+
+    - name: Extract the version number from the top-level directory
+      ansible.builtin.set_fact:
+        extracted_version: "{{ extracted_dir.files[0].path | regex_search('ansible-automation-platform-containerized-setup-(.*)$', '\\1') }}"
+      when: extracted_dir.matched > 0
+
+    - name: Debug the extracted version
+      ansible.builtin.debug:
+        var: extracted_version
+
+    - name: Rename the top-level directory to a constant name
+      ansible.builtin.command:
+        cmd: "mv {{ extracted_dir.files[0].path }} {{ installer_directory }}"
+      args:
+        removes: "{{ extracted_dir.files[0].path }}"
+
+    - name: Save the version number to version.txt
       ansible.builtin.copy:
-        src: "{{ local_installer_path }}"
-        dest: "{{ remote_installer_path }}"
-    
-    - name: Extract the installer
-      ansible.builtin.unarchive:
-        src: "{{ remote_installer_path }}"
-        dest: "/tmp/"
-        remote_src: true
+        content: "{{ extracted_version }}"
+        dest: "{{ installer_directory }}/installer-version.txt"
 
     - name: Generate AAP installer inventory file
       ansible.builtin.template:
         src: templates/inventory.j2
-        dest: /tmp/ansible-automation-platform-containerized-setup-2.5-2/inventory.custom
+        dest: "{{ installer_directory }}/inventory.custom"
 
     - name: Copy manifest.zip.gpg to AAP VM
       ansible.builtin.copy:
