@@ -122,8 +122,14 @@ build {
     // Platform install
     provisioner "shell" {
         inline = [
-            "cd /tmp/ansible-automation-platform-containerized-setup",
-            "ANSIBLE_COLLECTIONS_PATH=/tmp/ansible-automation-platform-containerized-setup/collections ansible-playbook -v -i inventory.custom ansible.containerized_installer.install"
+            "if [ -d /tmp/ansible-automation-platform-containerized-setup ]; then",
+            "  cd /tmp/ansible-automation-platform-containerized-setup",
+            "  ANSIBLE_COLLECTIONS_PATH=/tmp/ansible-automation-platform-containerized-setup/collections ansible-playbook -v -i inventory.custom ansible.containerized_installer.install",
+            "else",
+            "  echo 'Directory /tmp/ansible-automation-platform-containerized-setup does not exist.'",
+            "  ls /tmp",
+            "  exit 1",
+            "fi"
         ]
     }
 

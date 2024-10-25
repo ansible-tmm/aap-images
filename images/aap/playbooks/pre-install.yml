@@ -90,3 +90,12 @@
         path: /tmp/config
         state: directory
         mode: '0755'
+
+    - name: List contents of /tmp to verify the directory
+      ansible.builtin.command:
+        cmd: "ls -la /tmp/"
+      register: tmp_contents
+
+    - name: Debug contents of /tmp
+      ansible.builtin.debug:
+        var: tmp_contents.stdout_lines
