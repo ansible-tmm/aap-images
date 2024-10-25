@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 env:
-  PACKER_VERSION: "latest" # or: "latest"
+  PACKER_VERSION: "latest"
   PACKER_FILE: ./images/packer/aap.pkr.hcl
   INSTALLER_URL: ${{ secrets.INSTALLER_URL }}
   INSTALLER_REGISTRY_USERNAME: ${{ secrets.INSTALLER_REGISTRY_USERNAME }}
@@ -22,10 +22,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: GCP auth setup
-        uses: google-github-actions/auth@v0 
+        uses: google-github-actions/auth@v2
         with:
           credentials_json: '${{ secrets.GCLOUD_SA_KEY }}'
 
