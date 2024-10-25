@@ -4,7 +4,7 @@
   connection: local
   vars:
     installer_directory: /tmp/ansible-automation-platform-containerized-setup
-    installer_url: "{{ lookup('env', 'INSTALLER_URL') | default('INSTALLER_URL', true) }}"
+    installer_url: "{{ lookup('env', 'INSTALLER_URL') | default('CHANGEME', true) }}"
 
   tasks:
 

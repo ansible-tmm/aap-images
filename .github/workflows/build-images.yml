@@ -6,6 +6,7 @@ on:
 env:
   PACKER_VERSION: "latest" # or: "latest"
   PACKER_FILE: ./images/packer/aap.pkr.hcl
+  INSTALLER_URL: ${{ secrets.INSTALLER_URL }}
 
 jobs:
   build:
