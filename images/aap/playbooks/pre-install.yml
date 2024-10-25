@@ -22,7 +22,7 @@
       become: true
 
     - name: Install ansible-core, wget, git, and rsync
-      ansible.builtin.yum:
+      ansible.builtin.package:
         name:
           - ansible-core
           - wget
