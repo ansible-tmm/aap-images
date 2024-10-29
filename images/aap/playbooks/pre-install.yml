@@ -51,9 +51,10 @@
       ansible.builtin.debug:
         var: extracted_dir.files
 
-    - name: Extract the version number from the top-level directory
+    - name: Extract the version number and filename from installer archive
       ansible.builtin.set_fact:
         extracted_version: "{{ extracted_dir.files[0].path | regex_search('ansible-automation-platform-containerized-setup-(.*)$', '\\1') }}"
+        installer_filename: "{{ extracted_dir.files[0].path | basename }}"
       when: extracted_dir.matched > 0
 
     - name: Debug the extracted version
@@ -66,10 +67,25 @@
       args:
         removes: "{{ extracted_dir.files[0].path }}"
 
-    - name: Save the version number to version.txt
+    - name: Calculate SHA-256 checksum of the installer
+      ansible.builtin.command:
+        cmd: "sha256sum {{ installer_directory }}.tar.gz | awk '{ print $1 }'"
+      register: installer_checksum
+
+    - name: Save installer details to version.txt
       ansible.builtin.copy:
-        content: "{{ extracted_version }}"
-        dest: "{{ installer_directory }}/installer-version.txt"
+        content: |
+          installer_filename={{ installer_filename }}
+          installer_checksum={{ installer_checksum.stdout }}
+          installer_version={{ extracted_version }}
+        dest: "{{ installer_directory }}/version.txt"
+
+    - name: Copy version.txt from VM to Packer host
+      ansible.builtin.fetch:
+        src: "/tmp/ansible-automation-platform-containerized-setup/version.txt"
+        dest: "/tmp/version.txt"
+        flat: yes
+      delegate_to: localhost
 
     - name: Generate AAP installer inventory file
       ansible.builtin.template:
