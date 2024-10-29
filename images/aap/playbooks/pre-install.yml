@@ -84,6 +84,15 @@
         cmd: "ls -la /tmp/"
       register: tmp_contents
 
+    - name: List contents of /tmp/installer to verify the directory
+      ansible.builtin.command:
+        cmd: "ls -la /tmp/{{ installer_directory }}"
+      register: installer_tmp_contents
+
+    - name: Debug
+      ansible.builtin.debug:
+        var: installer_tmp_contents
+
     - name: Copy version.txt from VM to Packer host
       ansible.builtin.fetch:
         src: "{{ installer_directory }}/version.txt"
