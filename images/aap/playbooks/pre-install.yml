@@ -36,8 +36,7 @@
         dest: "{{ installer_directory }}.tar.gz"
 
     - name: Calculate SHA-256 checksum of the installer
-      ansible.builtin.command:
-        cmd: "sha256sum {{ installer_directory }}.tar.gz | awk '{ print $1 }'"
+      ansible.builtin.shell: "sha256sum {{ installer_directory }}.tar.gz | awk '{ print $1 }'"
       register: installer_checksum
 
     - name: Manually extract the installer
