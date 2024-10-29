@@ -79,9 +79,14 @@
           installer_version={{ extracted_version }}
         dest: "{{ installer_directory }}/version.txt"
 
+    - name: List contents of /tmp to verify the directory
+      ansible.builtin.command:
+        cmd: "ls -la /tmp/"
+      register: tmp_contents
+
     - name: Copy version.txt from VM to Packer host
       ansible.builtin.fetch:
-        src: "/tmp/ansible-automation-platform-containerized-setup/version.txt"
+        src: "{{ installer_directory }}/version.txt"
         dest: "/tmp/version.txt"
         flat: yes
       delegate_to: localhost
