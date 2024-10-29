@@ -86,7 +86,7 @@
 
     - name: List contents of /tmp/installer to verify the directory
       ansible.builtin.command:
-        cmd: "ls -la /tmp/{{ installer_directory }}"
+        cmd: "ls -la {{ installer_directory }}"
       register: installer_tmp_contents
 
     - name: Debug
