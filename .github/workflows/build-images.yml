@@ -71,7 +71,7 @@ jobs:
           packer build -var "aap_include_controller=${AAP_INCLUDE_CONTROLLER}" \
                        -var "aap_include_eda_controller=${AAP_INCLUDE_EDA_CONTROLLER}" \
                        -var "aap_include_automation_hub=${AAP_INCLUDE_AUTOMATION_HUB}" \
-                       ${{ env.PACKER_FILE }}
+                       -force ${{ env.PACKER_FILE }}
 
       # - name: Capture installer details from Packer
       #   if: success()
