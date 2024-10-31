@@ -99,6 +99,7 @@
         dest: "/tmp/version.txt"
         flat: yes
       delegate_to: localhost
+      ignore_errors: true
 
     - name: Generate AAP installer inventory file
       ansible.builtin.template:

@@ -73,17 +73,17 @@ jobs:
                        -var "aap_include_automation_hub=${AAP_INCLUDE_AUTOMATION_HUB}" \
                        ${{ env.PACKER_FILE }}
 
-      - name: Capture installer details from Packer
-        if: success()
-        run: |
-          if [[ -f /tmp/version.txt ]]; then
-            while IFS='=' read -r key value; do
-              echo "$key=$value" >> $GITHUB_ENV
-            done < /tmp/version.txt
-          fi
+      # - name: Capture installer details from Packer
+      #   if: success()
+      #   run: |
+      #     if [[ -f /tmp/version.txt ]]; then
+      #       while IFS='=' read -r key value; do
+      #         echo "$key=$value" >> $GITHUB_ENV
+      #       done < /tmp/version.txt
+      #     fi
 
-      - name: Generate workflow summary
-        run: |
-          echo "### AAP Image Build Summary" >> $GITHUB_STEP_SUMMARY
-          echo "**Installer Filename:** ${{ env.installer_filename }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Installer SHA-256 Checksum:** ${{ env.installer_checksum }}" >> $GITHUB_STEP_SUMMARY
+      # - name: Generate workflow summary
+      #   run: |
+      #     echo "### AAP Image Build Summary" >> $GITHUB_STEP_SUMMARY
+      #     echo "**Installer Filename:** ${{ env.installer_filename }}" >> $GITHUB_STEP_SUMMARY
+      #     echo "**Installer SHA-256 Checksum:** ${{ env.installer_checksum }}" >> $GITHUB_STEP_SUMMARY
