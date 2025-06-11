@@ -128,3 +128,24 @@
     - name: Debug contents of /tmp
       ansible.builtin.debug:
         var: tmp_contents.stdout_lines
+
+    # Try changes for project zero
+    - name: Enable password authentication in sshd_config
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?PasswordAuthentication'
+        line: 'PasswordAuthentication yes'
+        state: present
+      become: true
+
+    - name: Restart SSHD to apply changes
+      ansible.builtin.service:
+        name: sshd
+        state: restarted
+      become: true
+
+    - name: Set password for rhel user
+      become: true
+      ansible.builtin.user:
+        name: rhel
+        password: "{{ rhel_user_password | password_hash('sha512') }}"

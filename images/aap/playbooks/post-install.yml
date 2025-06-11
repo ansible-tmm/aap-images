@@ -1,6 +1,8 @@
 ---
 - name: (POST INSTALL) - Configure AAP
   hosts: all
+  vars:
+    installer_directory: /tmp/ansible-automation-platform-containerized-setup
   tasks:
 
     - &tower-pinger-block
@@ -45,6 +47,32 @@
         path: /tmp/manifest.zip
         state: absent
 
-    - ansible.builtin.file:
-        path: /tmp/ansible-automation-platform-containerized-setup-2.5-2/inventory.custom
+    - name: Clean up manifest.zip.gpg
+      ansible.builtin.file:
+        path: /tmp/manifest.zip.gpg
         state: absent
+      become: true
+
+    - name: Cleanup inventory file
+      ansible.builtin.file:
+        path: "{{ installer_directory }}/inventory.custom"
+        state: absent
+
+    - name: Copy installer directory to /root
+      ansible.builtin.copy:
+        src: "{{ installer_directory }}"
+        dest: /root/
+        remote_src: true
+      become: true
+
+    - name: Remove original installer directory from /tmp
+      ansible.builtin.file:
+        path: "{{ installer_directory }}"
+        state: absent
+      become: true
+
+    - name: Clean up installer tarball
+      ansible.builtin.file:
+        path: "{{ installer_directory }}.tar.gz"
+        state: absent
+      become: true
