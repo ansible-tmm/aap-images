@@ -149,3 +149,10 @@
       ansible.builtin.user:
         name: rhel
         password: "{{ rhel_user_password | password_hash('sha512') }}"
+
+    - name: Install cloud-init
+      ansible.builtin.package:
+        name:
+          - cloud-init
+        state: present
+      become: true
