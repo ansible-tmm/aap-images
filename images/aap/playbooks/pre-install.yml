@@ -144,6 +144,12 @@
         state: restarted
       become: true
 
+    - name: Ensure python3-passlib is installed
+      become: true
+      ansible.builtin.package:
+        name: python3-passlib
+        state: present
+
     - name: Set password for rhel user
       become: true
       ansible.builtin.user:
