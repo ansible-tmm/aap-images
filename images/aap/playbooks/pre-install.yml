@@ -144,22 +144,9 @@
         state: restarted
       become: true
 
-    - name: Ensure pip is installed
+    - name: Set password for rhel user using variable
       become: true
-      ansible.builtin.package:
-        name: python3-pip
-        state: present
-
-    - name: Install passlib using pip
-      become: true
-      ansible.builtin.pip:
-        name: passlib
-
-    - name: Set password for rhel user
-      become: true
-      ansible.builtin.user:
-        name: rhel
-        password: "{{ rhel_user_password | password_hash('sha512') }}"
+      ansible.builtin.shell: echo "rhel:{{ rhel_user_password }}" | chpasswd
 
     - name: Install cloud-init
       ansible.builtin.package:
