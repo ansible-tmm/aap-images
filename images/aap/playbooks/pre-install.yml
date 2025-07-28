@@ -28,7 +28,7 @@
       become: true
 
     - name: Verify hostname resolution
-      ansible.builtin.shell: getent hosts {{ installer_fqdn_hostname }}
+      ansible.builtin.shell: getent ahostsv4 {{ installer_fqdn_hostname }}
       register: hostname_check
       failed_when: "'127.0.0.1' not in hostname_check.stdout"
 
