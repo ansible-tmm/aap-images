@@ -11,6 +11,13 @@
       become: true
       ansible.builtin.command: hostnamectl set-hostname {{ installer_fqdn_hostname }}
 
+    - name: Remove any existing entry for {{ installer_fqdn_hostname }}
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        regexp: '^.*\s+{{ installer_fqdn_hostname }}(\s|$)'
+        state: absent
+      become: true
+
     - name: Add entry to /etc/hosts for {{ installer_fqdn_hostname }}
       ansible.builtin.lineinfile:
         path: /etc/hosts
@@ -19,6 +26,11 @@
         create: true
         backup: true
       become: true
+
+    - name: Verify hostname resolution
+      ansible.builtin.shell: getent hosts {{ installer_fqdn_hostname }}
+      register: hostname_check
+      failed_when: "'127.0.0.1' not in hostname_check.stdout"
 
     - name: Install ansible-core, wget, git, and rsync
       ansible.builtin.package:
