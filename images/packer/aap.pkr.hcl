@@ -105,7 +105,7 @@ build {
 
     // Pre-build debug
     provisioner "shell" {
-        inline = ["echo 'Building image with name: ${local.image_name}'"]
+        inline = ["echo 'Building image with name: aap-temp-${local.image_label}-${formatdate("YYYYMMDD", timestamp())}'"]
     }  
 
     // Pre-build debug to print the values of key variables
@@ -116,7 +116,7 @@ build {
             "echo '// aap_include_controller=${var.aap_include_controller}'",
             "echo '// aap_include_automation_hub=${var.aap_include_automation_hub}'",
             "echo '// aap_include_eda_controller=${var.aap_include_eda_controller}'",
-            "echo '// Generated image name: ${local.image_name}'",
+            "echo '// Generated image name: aap-temp-${local.image_label}-${formatdate("YYYYMMDD", timestamp())}'",
             "echo '////////////////////////////'"
         ]
     }
