@@ -70,6 +70,10 @@ jobs:
           echo "AAP_INCLUDE_AUTOMATION_HUB=${AAP_INCLUDE_AUTOMATION_HUB}" >> $GITHUB_ENV
 
       - name: Build AAP Image
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
         run: |
           packer build -var "aws_region=${{ secrets.AWS_REGION || 'us-east-1' }}" \
                        -var "aap_include_controller=${AAP_INCLUDE_CONTROLLER}" \
