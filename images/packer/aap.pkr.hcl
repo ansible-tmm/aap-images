@@ -19,7 +19,7 @@ variable "aws_region" {
 
 variable "instance_type" {
     type    = string
-    default = "m5.2xlarge"
+    default = "m5.4xlarge"
 }
 
 variable "aap_include_controller" {
@@ -92,6 +92,13 @@ source "amazon-ebs" "automation-controller" {
     instance_type = var.instance_type
     ssh_username  = "ec2-user"
     ami_name      = local.image_name
+    
+    launch_block_device_mappings {
+        device_name = "/dev/sda1"
+        volume_size = 50
+        volume_type = "gp3"
+        delete_on_termination = true
+    }
 }
 
 build {
