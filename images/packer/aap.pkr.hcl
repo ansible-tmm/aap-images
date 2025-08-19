@@ -43,7 +43,7 @@ variable "ansible_vars_file" {
 }
 
 locals {
-    // Define components with enabled flags and labels
+    // Define components with enabled flags and labels (lowercase)
     aap_components = {
         controller = {
             enabled = var.aap_include_controller
@@ -150,7 +150,7 @@ build {
         inline = [
             "# Extract version from version.txt on the VM",
             "if [ -f /tmp/ansible-automation-platform-containerized-setup/version.txt ]; then",
-            "  AAP_VERSION=$(grep installer_version /tmp/ansible-automation-platform-containerized-setup/version.txt | cut -d= -f2 | tr -d '[]' | sed 's/bundle-//' | sed 's/-x86_64//')",
+            "  AAP_VERSION=$(grep installer_version /tmp/ansible-automation-platform-containerized-setup/version.txt | cut -d= -f2 | tr -d \"[]'\" | sed 's/bundle-//' | sed 's/-x86_64//')",
             "  echo \"Extracted AAP Version: $AAP_VERSION\"",
             "  echo \"$AAP_VERSION\" > /tmp/aap_version.txt",
             "  echo \"Version saved to /tmp/aap_version.txt\"",

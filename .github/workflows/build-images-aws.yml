@@ -90,10 +90,10 @@ jobs:
           
           # Extract version from the file downloaded from Packer build
           if [ -f /tmp/aap_version_*.txt ]; then
-            AAP_VERSION=$(cat /tmp/aap_version_*.txt)
+            AAP_VERSION=$(cat /tmp/aap_version_*.txt | tr -d "[]'\"" | sed 's/bundle-//' | sed 's/-x86_64//')
             echo "Extracted AAP Version from Packer build: $AAP_VERSION"
           elif [ -f /tmp/version.txt ]; then
-            AAP_VERSION=$(grep installer_version /tmp/version.txt | cut -d= -f2 | tr -d '[]' | sed 's/bundle-//' | sed 's/-x86_64//')
+            AAP_VERSION=$(grep installer_version /tmp/version.txt | cut -d= -f2 | tr -d "[]'\"" | sed 's/bundle-//' | sed 's/-x86_64//')
             echo "Extracted AAP Version from version.txt: $AAP_VERSION"
           else
             # Fallback: extract from installer URL if version files not available
@@ -101,8 +101,9 @@ jobs:
             echo "Using version from URL fallback: $AAP_VERSION"
           fi
           
-          # Create final AMI name with version
-          FINAL_NAME="aap-$AAP_VERSION-${{ matrix.flavor }}-$(date +%Y%m%d)"
+          # Create final AMI name with version (convert flavor to lowercase)
+          FLAVOR_LOWER=$(echo "${{ matrix.flavor }}" | tr '[:upper:]' '[:lower:]')
+          FINAL_NAME="aap-$AAP_VERSION-$FLAVOR_LOWER-$(date +%Y%m%d)"
           echo "Final AMI name: $FINAL_NAME"
           
           # Copy AMI with new name
@@ -139,18 +140,19 @@ jobs:
           # Set variables
           AMI_ID="${{ steps.get-ami.outputs.ami_id }}"
           S3_BUCKET="${{ secrets.S3_BUCKET_NAME || 'aap-qcow2-images' }}"
-          S3_PREFIX="aap-images/${{ matrix.flavor }}"
-          EXPORT_TASK_NAME="aap-${{ matrix.flavor }}-$(date +%Y%m%d-%H%M%S)"
+          FLAVOR_LOWER=$(echo "${{ matrix.flavor }}" | tr '[:upper:]' '[:lower:]')
+          S3_PREFIX="aap-images/$FLAVOR_LOWER"
+          EXPORT_TASK_NAME="aap-$FLAVOR_LOWER-$(date +%Y%m%d-%H%M%S)"
           
           echo "Exporting AMI $AMI_ID to S3 bucket: s3://$S3_BUCKET/$S3_PREFIX"
           
-          # Create VM export task
+          # Create VM export task (using raw format as QCOW2 is not supported)
           EXPORT_TASK_ID=$(aws ec2 export-image \
             --image-id "$AMI_ID" \
-            --disk-image-format QCOW2 \
+            --disk-image-format raw \
             --s3-export-location S3Bucket="$S3_BUCKET",S3Prefix="$S3_PREFIX/" \
-            --description "AAP ${{ matrix.flavor }} qcow2 export from $AMI_ID" \
-            --tag-specifications "ResourceType=export-image-task,Tags=[{Key=Name,Value=$EXPORT_TASK_NAME},{Key=Flavor,Value=${{ matrix.flavor }}},{Key=BuildDate,Value=$(date +%Y-%m-%d)}]" \
+            --description "AAP $FLAVOR_LOWER raw export from $AMI_ID (for qcow2 conversion)" \
+            --tag-specifications "ResourceType=export-image-task,Tags=[{Key=Name,Value=$EXPORT_TASK_NAME},{Key=Flavor,Value=$FLAVOR_LOWER},{Key=BuildDate,Value=$(date +%Y-%m-%d)}]" \
             --query 'ExportImageTaskId' \
             --output text)
           
@@ -182,7 +184,7 @@ jobs:
             echo "Export status: $STATUS, Progress: $PROGRESS%"
             
             if [ "$STATUS" = "completed" ]; then
-              S3_URL=$(aws ec2 describe-export-image-tasks \
+              S3_BUCKET=$(aws ec2 describe-export-image-tasks \
                 --export-image-task-ids "$EXPORT_TASK_ID" \
                 --query 'ExportImageTasks[0].S3ExportLocation.S3Bucket' \
                 --output text)
@@ -191,9 +193,48 @@ jobs:
                 --query 'ExportImageTasks[0].S3ExportLocation.S3Key' \
                 --output text)
               
-              echo "✅ Export completed!"
-              echo "📦 qcow2 image available at: s3://$S3_URL/$S3_KEY"
-              echo "s3_url=s3://$S3_URL/$S3_KEY" >> $GITHUB_OUTPUT
+              echo "✅ Raw image export completed!"
+              echo "📦 Raw image available at: s3://$S3_BUCKET/$S3_KEY"
+              
+              # Convert raw to qcow2 using qemu-img in a container
+              echo "🔄 Converting raw image to qcow2 format..."
+              RAW_FILE=$(basename "$S3_KEY")
+              QCOW2_FILE="${RAW_FILE%.raw}.qcow2"
+              
+              # Download raw image
+              echo "⬇️ Downloading raw image..."
+              aws s3 cp "s3://$S3_BUCKET/$S3_KEY" "$RAW_FILE"
+              
+              # Install podman if not available, fallback to docker
+              if ! command -v podman &> /dev/null; then
+                echo "📦 Installing podman..."
+                sudo apt-get update -q
+                sudo apt-get install -y podman
+              fi
+              
+              # Convert to qcow2 using Podman (with Docker fallback)
+              echo "🔄 Converting to qcow2..."
+              if command -v podman &> /dev/null; then
+                podman run --rm -v "$(pwd):/work" -w /work \
+                  quay.io/libpod/qemu:latest \
+                  qemu-img convert -f raw -O qcow2 "$RAW_FILE" "$QCOW2_FILE"
+              else
+                docker run --rm -v "$(pwd):/work" -w /work \
+                  quay.io/libpod/qemu:latest \
+                  qemu-img convert -f raw -O qcow2 "$RAW_FILE" "$QCOW2_FILE"
+              fi
+              
+              # Upload qcow2 back to S3
+              echo "⬆️ Uploading qcow2 image..."
+              QCOW2_S3_KEY="${S3_KEY%.raw}.qcow2"
+              aws s3 cp "$QCOW2_FILE" "s3://$S3_BUCKET/$QCOW2_S3_KEY"
+              
+              # Clean up local files
+              rm -f "$RAW_FILE" "$QCOW2_FILE"
+              
+              echo "✅ Conversion completed!"
+              echo "📦 qcow2 image available at: s3://$S3_BUCKET/$QCOW2_S3_KEY"
+              echo "s3_url=s3://$S3_BUCKET/$QCOW2_S3_KEY" >> $GITHUB_OUTPUT
               break
             elif [ "$STATUS" = "cancelled" ] || [ "$STATUS" = "cancelling" ]; then
               echo "❌ Export was cancelled"
