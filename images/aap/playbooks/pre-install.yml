@@ -141,6 +141,18 @@
       ansible.builtin.debug:
         var: tmp_contents.stdout_lines
 
+    - name: Test Red Hat registry authentication
+      ansible.builtin.shell: |
+        podman login registry.redhat.io -u "{{ installer_registry_username }}" -p "{{ installer_registry_password }}"
+      register: registry_login_result
+      become: true
+      failed_when: registry_login_result.rc != 0
+
+    - name: Verify registry authentication worked
+      ansible.builtin.debug:
+        msg: "Registry login successful"
+      when: registry_login_result.rc == 0
+
     # Try changes for project zero
     - name: Enable password authentication in sshd_config
       ansible.builtin.lineinfile:
