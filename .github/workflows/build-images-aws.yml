@@ -1,0 +1,92 @@
+name: Build All AAP Image Flavors (AWS)
+
+on:
+  workflow_dispatch:
+
+env:
+  PACKER_VERSION: "latest"
+  PACKER_FILE: ./images/packer/aap.pkr.hcl
+  INSTALLER_URL: ${{ secrets.INSTALLER_URL }}
+  INSTALLER_REGISTRY_USERNAME: ${{ secrets.INSTALLER_REGISTRY_USERNAME }}
+  INSTALLER_REGISTRY_PASSWORD: ${{ secrets.INSTALLER_REGISTRY_PASSWORD }}
+  INSTALLER_ADMIN_PW: ${{ secrets.INSTALLER_ADMIN_PW }}
+  GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+  RHEL_USER_PASSWORD:  ${{ secrets.RHEL_USER_PASSWORD }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        flavor: [C, CE, CH, CEH]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION || 'us-east-1' }}
+
+      - name: Set up Packer
+        uses: hashicorp/setup-packer@main
+        with:
+          version: ${{ env.PACKER_VERSION }}
+
+      - name: Run `packer init`
+        id: init
+        run: "packer init ${{ env.PACKER_FILE }}"
+
+      - name: Run `packer validate`
+        id: validate
+        run: "packer validate ${{ env.PACKER_FILE }}"
+
+      - name: Set build variables based on flavor
+        run: |
+          if [[ "${{ matrix.flavor }}" == "C" ]]; then
+            export AAP_INCLUDE_CONTROLLER=true
+            export AAP_INCLUDE_EDA_CONTROLLER=false
+            export AAP_INCLUDE_AUTOMATION_HUB=false
+          elif [[ "${{ matrix.flavor }}" == "CE" ]]; then
+            export AAP_INCLUDE_CONTROLLER=true
+            export AAP_INCLUDE_EDA_CONTROLLER=true
+            export AAP_INCLUDE_AUTOMATION_HUB=false
+          elif [[ "${{ matrix.flavor }}" == "CH" ]]; then
+            export AAP_INCLUDE_CONTROLLER=true
+            export AAP_INCLUDE_EDA_CONTROLLER=false
+            export AAP_INCLUDE_AUTOMATION_HUB=true
+          elif [[ "${{ matrix.flavor }}" == "CEH" ]]; then
+            export AAP_INCLUDE_CONTROLLER=true
+            export AAP_INCLUDE_EDA_CONTROLLER=true
+            export AAP_INCLUDE_AUTOMATION_HUB=true
+          fi
+
+          echo "AAP_INCLUDE_CONTROLLER=${AAP_INCLUDE_CONTROLLER}" >> $GITHUB_ENV
+          echo "AAP_INCLUDE_EDA_CONTROLLER=${AAP_INCLUDE_EDA_CONTROLLER}" >> $GITHUB_ENV
+          echo "AAP_INCLUDE_AUTOMATION_HUB=${AAP_INCLUDE_AUTOMATION_HUB}" >> $GITHUB_ENV
+
+      - name: Build AAP Image
+        run: |
+          packer build -var "aap_include_controller=${AAP_INCLUDE_CONTROLLER}" \
+                       -var "aap_include_eda_controller=${AAP_INCLUDE_EDA_CONTROLLER}" \
+                       -var "aap_include_automation_hub=${AAP_INCLUDE_AUTOMATION_HUB}" \
+                       -force ${{ env.PACKER_FILE }}
+
+      # - name: Capture installer details from Packer
+      #   if: success()
+      #   run: |
+      #     if [[ -f /tmp/version.txt ]]; then
+      #       while IFS='=' read -r key value; do
+      #         echo "$key=$value" >> $GITHUB_ENV
+      #       done < /tmp/version.txt
+      #     fi
+
+      # - name: Generate workflow summary
+      #   run: |
+      #     echo "### AAP Image Build Summary" >> $GITHUB_STEP_SUMMARY
+      #     echo "**Installer Filename:** ${{ env.installer_filename }}" >> $GITHUB_STEP_SUMMARY
+      #     echo "**Installer SHA-256 Checksum:** ${{ env.installer_checksum }}" >> $GITHUB_STEP_SUMMARY

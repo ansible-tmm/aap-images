@@ -76,34 +76,3 @@
         path: "{{ installer_directory }}.tar.gz"
         state: absent
       become: true
-
-    - name: Disable all Google Cloud services
-      ansible.builtin.systemd:
-        name: "{{ item }}"
-        enabled: false
-        state: stopped
-      loop:
-        - google-disk-expand.service
-        - google-guest-agent-manager.service
-        - google-guest-agent.service
-        - google-guest-compat-manager.service
-        - google-osconfig-agent.service
-        - google-shutdown-scripts.service
-        - google-startup-scripts.service
-      become: true
-      ignore_errors: true
-
-    - name: Disable Google Cloud timers
-      ansible.builtin.systemd:
-        name: google-oslogin-cache.timer
-        enabled: false
-        state: stopped
-      become: true
-      ignore_errors: true
-
-    - name: Mask static Google Cloud services
-      ansible.builtin.systemd:
-        name: google-oslogin-cache.service
-        masked: true
-      become: true
-      ignore_errors: true

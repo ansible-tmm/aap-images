@@ -4,22 +4,22 @@ packer {
       version = ">= v1.1.2"
       source = "github.com/hashicorp/ansible"
     }
-    gcloud = {
-      version = ">= v1.1.6"
-      source = "github.com/hashicorp/googlecompute"
+    amazon = {
+      version = ">= v1.2.8"
+      source = "github.com/hashicorp/amazon"
     }
   }
 }
 
 
-variable "project_id" {
+variable "aws_region" {
     type    = string
-    default = "red-hat-mbu"
+    default = "us-east-1"
 }
 
-variable "zone" {
+variable "instance_type" {
     type    = string
-    default = "us-east1-b"
+    default = "m5.2xlarge"
 }
 
 variable "aap_include_controller" {
@@ -78,18 +78,24 @@ locals {
     extra_args = concat(local.extra_args_common, local.extra_args_file)
 }
 
-source "googlecompute" "automation-controller" {
-    project_id          = var.project_id
-    source_image_family = "rhel-9"
-    ssh_username        = "rhel"
-    wait_to_add_ssh_keys = "60s"
-    zone                = var.zone
-    machine_type        = "n1-standard-8"
-    image_name          = local.image_name
+source "amazon-ebs" "automation-controller" {
+    region          = var.aws_region
+    source_ami_filter {
+        filters = {
+            name                = "RHEL-9.*_HVM-*-x86_64-*-Hourly2-GP2"
+            root-device-type    = "ebs"
+            virtualization-type = "hvm"
+        }
+        most_recent = true
+        owners      = ["309956199498"] # Red Hat
+    }
+    instance_type = var.instance_type
+    ssh_username  = "ec2-user"
+    ami_name      = local.image_name
 }
 
 build {
-    sources = ["sources.googlecompute.automation-controller"]
+    sources = ["sources.amazon-ebs.automation-controller"]
 
     // Pre-build debug
     provisioner "shell" {
@@ -109,11 +115,25 @@ build {
         ]
     }
 
+    // Create rhel user for compatibility with Google Cloud images
+    provisioner "shell" {
+        inline = [
+            "sudo useradd -m -s /bin/bash rhel",
+            "sudo usermod -aG wheel rhel",
+            "echo 'rhel ALL=(ALL) NOPASSWD:ALL' | sudo tee /etc/sudoers.d/rhel",
+            "sudo mkdir -p /home/rhel/.ssh",
+            "sudo cp /home/ec2-user/.ssh/authorized_keys /home/rhel/.ssh/",
+            "sudo chown -R rhel:rhel /home/rhel/.ssh",
+            "sudo chmod 700 /home/rhel/.ssh",
+            "sudo chmod 600 /home/rhel/.ssh/authorized_keys"
+        ]
+    }
+
     // Pre install tasks
     provisioner "ansible" {
         command = "ansible-playbook"
         playbook_file = "${path.root}/../aap/playbooks/pre-install.yml"
-        user = "rhel"
+        user = "ec2-user"
         inventory_file_template = "controller ansible_host={{ .Host }} ansible_user={{ .User }} ansible_port={{ .Port }}\n"
         use_proxy = false
         extra_arguments = local.extra_args
@@ -137,7 +157,7 @@ build {
     provisioner "ansible" {
         command = "ansible-playbook"
         playbook_file = "${path.root}/../aap/playbooks/post-install.yml"
-        user = "rhel"
+        user = "ec2-user"
         inventory_file_template = "controller ansible_host={{ .Host }} ansible_user={{ .User }} ansible_port={{ .Port }}\n"
         use_proxy = false
         extra_arguments = local.extra_args
