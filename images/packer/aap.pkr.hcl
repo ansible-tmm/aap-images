@@ -145,19 +145,27 @@ build {
         extra_arguments = local.extra_args
     }
 
-    // Update AMI name with extracted version
-    provisioner "shell-local" {
+    // Extract version information from the VM and save to build environment
+    provisioner "shell" {
         inline = [
-            "# Extract version from the build",
-            "if [ -f /tmp/version.txt ]; then",
-            "  AAP_VERSION=$(grep installer_version /tmp/version.txt | cut -d= -f2)",
+            "# Extract version from version.txt on the VM",
+            "if [ -f /tmp/ansible-automation-platform-containerized-setup/version.txt ]; then",
+            "  AAP_VERSION=$(grep installer_version /tmp/ansible-automation-platform-containerized-setup/version.txt | cut -d= -f2 | tr -d '[]' | sed 's/bundle-//' | sed 's/-x86_64//')",
             "  echo \"Extracted AAP Version: $AAP_VERSION\"",
-            "  # Update the AMI name in the manifest for final naming",
-            "  echo \"Final AMI will be named: aap-$AAP_VERSION-${local.image_label}-${formatdate("YYYYMMDD", timestamp())}\"",
+            "  echo \"$AAP_VERSION\" > /tmp/aap_version.txt",
+            "  echo \"Version saved to /tmp/aap_version.txt\"",
             "else",
-            "  echo \"Warning: /tmp/version.txt not found, using default naming\"",
+            "  echo \"Warning: version.txt not found, using fallback version\"",
+            "  echo \"2.5-17\" > /tmp/aap_version.txt",
             "fi"
         ]
+    }
+    
+    // Download the version file from the VM to the Packer host
+    provisioner "file" {
+        source = "/tmp/aap_version.txt"
+        destination = "/tmp/aap_version_${build.ID}.txt"
+        direction = "download"
     }
 
     // Platform install
@@ -183,6 +191,7 @@ build {
         use_proxy = false
         extra_arguments = local.extra_args
     }
+
 
     post-processor "manifest" {
         output = "manifest.json"
