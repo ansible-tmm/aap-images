@@ -62,7 +62,7 @@ locals {
     // Construct the image label based on enabled components (sorted alphabetically)
     enabled_labels = sort([for key, component in local.aap_components : component.label if component.enabled])
     image_label    = join("", local.enabled_labels)
-    image_name     = "aap-25-${local.image_label}-${formatdate("YYYYMMDD", timestamp())}"
+    image_name     = "aap-temp-${local.image_label}-${formatdate("YYYYMMDD", timestamp())}"
 
     // Create ansible vars argument list depending on the presence of ansible_vars_file
     extra_args_file = var.ansible_vars_file != null ? ["-e", var.ansible_vars_file, "-vvvv"] : ["-vv"]
@@ -168,5 +168,38 @@ build {
         inventory_file_template = "controller ansible_host={{ .Host }} ansible_user={{ .User }} ansible_port={{ .Port }}\n"
         use_proxy = false
         extra_arguments = local.extra_args
+    }
+
+    post-processor "shell-local" {
+        inline = [
+            "# Extract version from the build",
+            "if [ -f /tmp/version.txt ]; then",
+            "  AAP_VERSION=$(grep installer_version /tmp/version.txt | cut -d= -f2 | sed 's/\\[//g;s/\\]//g;s/bundle-//g')",
+            "  echo \"Extracted AAP Version: $AAP_VERSION\"",
+            "else",
+            "  AAP_VERSION=\"25\"",
+            "  echo \"Using default version: $AAP_VERSION\"",
+            "fi",
+            "",
+            "# Create final AMI name with version",
+            "FINAL_NAME=\"aap-$AAP_VERSION-${local.image_label}-${formatdate("YYYYMMDD", timestamp())}\"",
+            "echo \"Final AMI name: $FINAL_NAME\"",
+            "",
+            "# Get the AMI ID from manifest",
+            "AMI_ID=$(jq -r '.builds[0].artifact_id' manifest.json | cut -d: -f2)",
+            "echo \"Copying AMI $AMI_ID to new name $FINAL_NAME\"",
+            "",
+            "# Copy AMI with new name",
+            "aws ec2 copy-image --source-image-id $AMI_ID --source-region ${var.aws_region} --name \"$FINAL_NAME\" --description \"AAP $AAP_VERSION ${local.image_label} built on ${formatdate("YYYY-MM-DD", timestamp())}\" --region ${var.aws_region}",
+            "",
+            "# Delete the temporary AMI",
+            "aws ec2 deregister-image --image-id $AMI_ID --region ${var.aws_region}",
+            "echo \"Renamed AMI from ${local.image_name} to $FINAL_NAME\""
+        ]
+    }
+
+    post-processor "manifest" {
+        output = "manifest.json"
+        strip_path = true
     }
 }
