@@ -81,12 +81,52 @@ jobs:
             -var "aap_include_automation_hub=${AAP_INCLUDE_AUTOMATION_HUB}" \
             -force ${{ env.PACKER_FILE }}
 
-      - name: Get AMI ID from manifest
+      - name: Get AMI ID and rename with version
         id: get-ami
         run: |
-          AMI_ID=$(jq -r '.builds[0].artifact_id' manifest.json | cut -d: -f2)
-          echo "ami_id=$AMI_ID" >> $GITHUB_OUTPUT
-          echo "Found AMI ID: $AMI_ID"
+          # Get the temporary AMI ID
+          TEMP_AMI_ID=$(jq -r '.builds[0].artifact_id' manifest.json | cut -d: -f2)
+          echo "Found temporary AMI ID: $TEMP_AMI_ID"
+          
+          # Extract version from downloaded installer (GitHub workflow should have this)
+          if [ -f /tmp/version.txt ]; then
+            AAP_VERSION=$(grep installer_version /tmp/version.txt | cut -d= -f2)
+            echo "Extracted AAP Version: $AAP_VERSION"
+          else
+            # Fallback: extract from installer URL if version.txt not available
+            AAP_VERSION=$(echo "${{ env.INSTALLER_URL }}" | grep -oP 'setup-\K[0-9]+\.[0-9]+' || echo "25")
+            echo "Using version from URL: $AAP_VERSION"
+          fi
+          
+          # Create final AMI name with version
+          FINAL_NAME="aap-$AAP_VERSION-${{ matrix.flavor }}-$(date +%Y%m%d)"
+          echo "Final AMI name: $FINAL_NAME"
+          
+          # Copy AMI with new name
+          echo "Copying AMI $TEMP_AMI_ID to new name $FINAL_NAME"
+          NEW_AMI_ID=$(aws ec2 copy-image \
+            --source-image-id "$TEMP_AMI_ID" \
+            --source-region ${{ secrets.AWS_REGION || 'us-east-1' }} \
+            --name "$FINAL_NAME" \
+            --description "AAP $AAP_VERSION ${{ matrix.flavor }} built on $(date +%Y-%m-%d)" \
+            --region ${{ secrets.AWS_REGION || 'us-east-1' }} \
+            --query 'ImageId' \
+            --output text)
+          
+          echo "New AMI ID: $NEW_AMI_ID"
+          
+          # Wait for the new AMI to be available
+          echo "Waiting for new AMI to be available..."
+          aws ec2 wait image-available --image-ids "$NEW_AMI_ID" --region ${{ secrets.AWS_REGION || 'us-east-1' }}
+          
+          # Delete the temporary AMI
+          echo "Deleting temporary AMI: $TEMP_AMI_ID"
+          aws ec2 deregister-image --image-id "$TEMP_AMI_ID" --region ${{ secrets.AWS_REGION || 'us-east-1' }}
+          
+          # Output the final AMI ID for export
+          echo "ami_id=$NEW_AMI_ID" >> $GITHUB_OUTPUT
+          echo "final_name=$FINAL_NAME" >> $GITHUB_OUTPUT
+          echo "Final AMI ready: $NEW_AMI_ID ($FINAL_NAME)"
 
       - name: Export AMI to S3 as qcow2
         id: export-ami
@@ -170,16 +210,57 @@ jobs:
             exit 1
           fi
 
+      - name: Cleanup AWS resources  
+        if: always()
+        run: |
+          AMI_ID="${{ steps.get-ami.outputs.ami_id }}"
+          
+          if [ -n "$AMI_ID" ] && [ "$AMI_ID" != "null" ]; then
+            echo "🧹 Cleaning up AWS resources for AMI: $AMI_ID"
+            
+            # Get snapshot IDs associated with the AMI
+            SNAPSHOT_IDS=$(aws ec2 describe-images \
+              --image-ids "$AMI_ID" \
+              --query 'Images[0].BlockDeviceMappings[*].Ebs.SnapshotId' \
+              --output text \
+              --region ${{ secrets.AWS_REGION || 'us-east-1' }} || echo "")
+            
+            # Deregister the AMI
+            echo "🗑️ Deregistering AMI: $AMI_ID"
+            aws ec2 deregister-image \
+              --image-id "$AMI_ID" \
+              --region ${{ secrets.AWS_REGION || 'us-east-1' }} || echo "Failed to deregister AMI"
+            
+            # Delete associated snapshots
+            if [ -n "$SNAPSHOT_IDS" ] && [ "$SNAPSHOT_IDS" != "None" ]; then
+              for SNAPSHOT_ID in $SNAPSHOT_IDS; do
+                if [ "$SNAPSHOT_ID" != "None" ]; then
+                  echo "🗑️ Deleting snapshot: $SNAPSHOT_ID"
+                  aws ec2 delete-snapshot \
+                    --snapshot-id "$SNAPSHOT_ID" \
+                    --region ${{ secrets.AWS_REGION || 'us-east-1' }} || echo "Failed to delete snapshot $SNAPSHOT_ID"
+                fi
+              done
+            fi
+            
+            echo "✅ AWS cleanup completed"
+          else
+            echo "ℹ️ No AMI to cleanup"
+          fi
+
       - name: Generate build summary
+        if: success()
         run: |
           echo "## 🎉 AAP Image Build Complete - Flavor: ${{ matrix.flavor }}" >> $GITHUB_STEP_SUMMARY
-          echo "**AMI ID:** ${{ steps.get-ami.outputs.ami_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "**AMI Name:** ${{ steps.get-ami.outputs.final_name }}" >> $GITHUB_STEP_SUMMARY
           echo "**S3 Location:** ${{ steps.wait-export.outputs.s3_url }}" >> $GITHUB_STEP_SUMMARY
           echo "**Build Date:** $(date)" >> $GITHUB_STEP_SUMMARY
           echo "**Components:**" >> $GITHUB_STEP_SUMMARY
           echo "- Controller: ${AAP_INCLUDE_CONTROLLER}" >> $GITHUB_STEP_SUMMARY
           echo "- EDA: ${AAP_INCLUDE_EDA_CONTROLLER}" >> $GITHUB_STEP_SUMMARY
           echo "- Hub: ${AAP_INCLUDE_AUTOMATION_HUB}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Note:** AMI and snapshots have been automatically cleaned up to save costs." >> $GITHUB_STEP_SUMMARY
 
       # - name: Capture installer details from Packer
       #   if: success()
