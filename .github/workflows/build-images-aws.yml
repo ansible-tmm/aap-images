@@ -88,14 +88,17 @@ jobs:
           TEMP_AMI_ID=$(jq -r '.builds[0].artifact_id' manifest.json | cut -d: -f2)
           echo "Found temporary AMI ID: $TEMP_AMI_ID"
           
-          # Extract version from downloaded installer (GitHub workflow should have this)
-          if [ -f /tmp/version.txt ]; then
-            AAP_VERSION=$(grep installer_version /tmp/version.txt | cut -d= -f2)
-            echo "Extracted AAP Version: $AAP_VERSION"
+          # Extract version from the file downloaded from Packer build
+          if [ -f /tmp/aap_version_*.txt ]; then
+            AAP_VERSION=$(cat /tmp/aap_version_*.txt)
+            echo "Extracted AAP Version from Packer build: $AAP_VERSION"
+          elif [ -f /tmp/version.txt ]; then
+            AAP_VERSION=$(grep installer_version /tmp/version.txt | cut -d= -f2 | tr -d '[]' | sed 's/bundle-//' | sed 's/-x86_64//')
+            echo "Extracted AAP Version from version.txt: $AAP_VERSION"
           else
-            # Fallback: extract from installer URL if version.txt not available
-            AAP_VERSION=$(echo "${{ env.INSTALLER_URL }}" | grep -oP 'setup-\K[0-9]+\.[0-9]+' || echo "25")
-            echo "Using version from URL: $AAP_VERSION"
+            # Fallback: extract from installer URL if version files not available
+            AAP_VERSION=$(echo "${{ env.INSTALLER_URL }}" | grep -oP 'setup-\K[0-9]+\.[0-9]+-[0-9]+' || echo "2.5-17")
+            echo "Using version from URL fallback: $AAP_VERSION"
           fi
           
           # Create final AMI name with version
