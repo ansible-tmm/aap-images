@@ -81,6 +81,106 @@ jobs:
             -var "aap_include_automation_hub=${AAP_INCLUDE_AUTOMATION_HUB}" \
             -force ${{ env.PACKER_FILE }}
 
+      - name: Get AMI ID from manifest
+        id: get-ami
+        run: |
+          AMI_ID=$(jq -r '.builds[0].artifact_id' manifest.json | cut -d: -f2)
+          echo "ami_id=$AMI_ID" >> $GITHUB_OUTPUT
+          echo "Found AMI ID: $AMI_ID"
+
+      - name: Export AMI to S3 as qcow2
+        id: export-ami
+        env:
+          AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
+        run: |
+          # Set variables
+          AMI_ID="${{ steps.get-ami.outputs.ami_id }}"
+          S3_BUCKET="${{ secrets.S3_BUCKET_NAME || 'aap-qcow2-images' }}"
+          S3_PREFIX="aap-images/${{ matrix.flavor }}"
+          EXPORT_TASK_NAME="aap-${{ matrix.flavor }}-$(date +%Y%m%d-%H%M%S)"
+          
+          echo "Exporting AMI $AMI_ID to S3 bucket: s3://$S3_BUCKET/$S3_PREFIX"
+          
+          # Create VM export task
+          EXPORT_TASK_ID=$(aws ec2 export-image \
+            --image-id "$AMI_ID" \
+            --disk-image-format QCOW2 \
+            --s3-export-location S3Bucket="$S3_BUCKET",S3Prefix="$S3_PREFIX/" \
+            --description "AAP ${{ matrix.flavor }} qcow2 export from $AMI_ID" \
+            --tag-specifications "ResourceType=export-image-task,Tags=[{Key=Name,Value=$EXPORT_TASK_NAME},{Key=Flavor,Value=${{ matrix.flavor }}},{Key=BuildDate,Value=$(date +%Y-%m-%d)}]" \
+            --query 'ExportImageTaskId' \
+            --output text)
+          
+          echo "export_task_id=$EXPORT_TASK_ID" >> $GITHUB_OUTPUT
+          echo "Started export task: $EXPORT_TASK_ID"
+
+      - name: Wait for export completion
+        id: wait-export
+        run: |
+          EXPORT_TASK_ID="${{ steps.export-ami.outputs.export_task_id }}"
+          echo "Monitoring export task: $EXPORT_TASK_ID"
+          
+          # Wait for export to complete (timeout after 2 hours)
+          TIMEOUT=7200
+          ELAPSED=0
+          INTERVAL=60
+          
+          while [ $ELAPSED -lt $TIMEOUT ]; do
+            STATUS=$(aws ec2 describe-export-image-tasks \
+              --export-image-task-ids "$EXPORT_TASK_ID" \
+              --query 'ExportImageTasks[0].Status' \
+              --output text)
+            
+            PROGRESS=$(aws ec2 describe-export-image-tasks \
+              --export-image-task-ids "$EXPORT_TASK_ID" \
+              --query 'ExportImageTasks[0].Progress' \
+              --output text)
+            
+            echo "Export status: $STATUS, Progress: $PROGRESS%"
+            
+            if [ "$STATUS" = "completed" ]; then
+              S3_URL=$(aws ec2 describe-export-image-tasks \
+                --export-image-task-ids "$EXPORT_TASK_ID" \
+                --query 'ExportImageTasks[0].S3ExportLocation.S3Bucket' \
+                --output text)
+              S3_KEY=$(aws ec2 describe-export-image-tasks \
+                --export-image-task-ids "$EXPORT_TASK_ID" \
+                --query 'ExportImageTasks[0].S3ExportLocation.S3Key' \
+                --output text)
+              
+              echo "✅ Export completed!"
+              echo "📦 qcow2 image available at: s3://$S3_URL/$S3_KEY"
+              echo "s3_url=s3://$S3_URL/$S3_KEY" >> $GITHUB_OUTPUT
+              break
+            elif [ "$STATUS" = "cancelled" ] || [ "$STATUS" = "cancelling" ]; then
+              echo "❌ Export was cancelled"
+              exit 1
+            elif [ "$STATUS" = "failed" ]; then
+              echo "❌ Export failed"
+              aws ec2 describe-export-image-tasks --export-image-task-ids "$EXPORT_TASK_ID"
+              exit 1
+            fi
+            
+            sleep $INTERVAL
+            ELAPSED=$((ELAPSED + INTERVAL))
+          done
+          
+          if [ $ELAPSED -ge $TIMEOUT ]; then
+            echo "❌ Export timed out after 2 hours"
+            exit 1
+          fi
+
+      - name: Generate build summary
+        run: |
+          echo "## 🎉 AAP Image Build Complete - Flavor: ${{ matrix.flavor }}" >> $GITHUB_STEP_SUMMARY
+          echo "**AMI ID:** ${{ steps.get-ami.outputs.ami_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "**S3 Location:** ${{ steps.wait-export.outputs.s3_url }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Build Date:** $(date)" >> $GITHUB_STEP_SUMMARY
+          echo "**Components:**" >> $GITHUB_STEP_SUMMARY
+          echo "- Controller: ${AAP_INCLUDE_CONTROLLER}" >> $GITHUB_STEP_SUMMARY
+          echo "- EDA: ${AAP_INCLUDE_EDA_CONTROLLER}" >> $GITHUB_STEP_SUMMARY
+          echo "- Hub: ${AAP_INCLUDE_AUTOMATION_HUB}" >> $GITHUB_STEP_SUMMARY
+
       # - name: Capture installer details from Packer
       #   if: success()
       #   run: |
