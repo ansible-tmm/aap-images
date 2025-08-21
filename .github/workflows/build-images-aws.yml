@@ -146,16 +146,18 @@ jobs:
           echo "Exporting AMI $AMI_ID to S3 bucket: s3://$S3_BUCKET (root)"
           
           # Create VM export task (using raw format as QCOW2 is not supported)
+          S3_KEY="$EXPORT_TASK_NAME.raw"
           EXPORT_TASK_ID=$(aws ec2 export-image \
             --image-id "$AMI_ID" \
             --disk-image-format raw \
-            --s3-export-location S3Bucket="$S3_BUCKET" \
+            --s3-export-location S3Bucket="$S3_BUCKET",S3Prefix="$S3_KEY" \
             --description "AAP $FLAVOR_LOWER raw export from $AMI_ID (for qcow2 conversion)" \
             --tag-specifications "ResourceType=export-image-task,Tags=[{Key=Name,Value=$EXPORT_TASK_NAME},{Key=Flavor,Value=$FLAVOR_LOWER},{Key=BuildDate,Value=$(date +%Y-%m-%d)}]" \
             --query 'ExportImageTaskId' \
             --output text)
           
           echo "export_task_id=$EXPORT_TASK_ID" >> $GITHUB_OUTPUT
+          echo "s3_key=$S3_KEY" >> $GITHUB_OUTPUT
           echo "Started export task: $EXPORT_TASK_ID"
 
       - name: Wait for export completion
@@ -183,14 +185,21 @@ jobs:
             echo "Export status: $STATUS, Progress: $PROGRESS%"
             
             if [ "$STATUS" = "completed" ]; then
-              S3_BUCKET=$(aws ec2 describe-export-image-tasks \
-                --export-image-task-ids "$EXPORT_TASK_ID" \
-                --query 'ExportImageTasks[0].S3ExportLocation.S3Bucket' \
-                --output text)
-              S3_KEY=$(aws ec2 describe-export-image-tasks \
-                --export-image-task-ids "$EXPORT_TASK_ID" \
-                --query 'ExportImageTasks[0].S3ExportLocation.S3Key' \
-                --output text)
+              S3_BUCKET="${{ secrets.S3_BUCKET_NAME || 'aap-qcow2-images' }}"
+              S3_KEY="${{ steps.export-ami.outputs.s3_key }}"
+              
+              # Verify S3_KEY is set
+              if [ "$S3_KEY" = "None" ] || [ -z "$S3_KEY" ]; then
+                echo "Error: S3_KEY is not properly set. Attempting to retrieve from AWS..."
+                S3_KEY=$(aws ec2 describe-export-image-tasks \
+                  --export-image-task-ids "$EXPORT_TASK_ID" \
+                  --query 'ExportImageTasks[0].S3ExportLocation.S3Key' \
+                  --output text)
+                if [ "$S3_KEY" = "None" ] || [ -z "$S3_KEY" ]; then
+                  echo "Error: Unable to retrieve S3_KEY from AWS. Export may have failed."
+                  exit 1
+                fi
+              fi
               
               echo "Raw image export completed!"
               echo "Raw image available at: s3://$S3_BUCKET/$S3_KEY"
