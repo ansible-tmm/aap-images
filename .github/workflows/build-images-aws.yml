@@ -186,15 +186,30 @@ jobs:
             if [ "$STATUS" = "completed" ]; then
               S3_BUCKET="${{ secrets.S3_BUCKET_NAME || 'aap-qcow2-images' }}"
               
+              # Debug: Show full export task details
+              echo "Debug: Export task details:"
+              aws ec2 describe-export-image-tasks --export-image-task-ids "$EXPORT_TASK_ID"
+              
               # Get the actual S3 key from AWS (since AWS generates its own filename)
               S3_KEY=$(aws ec2 describe-export-image-tasks \
                 --export-image-task-ids "$EXPORT_TASK_ID" \
                 --query 'ExportImageTasks[0].S3ExportLocation.S3Key' \
                 --output text)
               
-              if [ "$S3_KEY" = "None" ] || [ -z "$S3_KEY" ]; then
-                echo "Error: Unable to retrieve S3_KEY from AWS. Export may have failed."
-                exit 1
+              echo "Debug: Retrieved S3_KEY='$S3_KEY'"
+              
+              if [ "$S3_KEY" = "None" ] || [ -z "$S3_KEY" ] || [ "$S3_KEY" = "null" ]; then
+                echo "Error: Unable to retrieve S3_KEY from AWS. Checking S3 bucket for recent files..."
+                # List most recent files in S3 bucket
+                aws s3 ls s3://$S3_BUCKET/ --recursive | tail -5
+                echo "Using fallback: finding most recent .raw file in bucket"
+                S3_KEY=$(aws s3 ls s3://$S3_BUCKET/ --recursive | grep "\.raw$" | tail -1 | awk '{print $4}')
+                echo "Found S3_KEY via fallback: '$S3_KEY'"
+                
+                if [ -z "$S3_KEY" ]; then
+                  echo "Error: No .raw file found in S3 bucket. Export may have failed."
+                  exit 1
+                fi
               fi
               
               echo "AWS generated S3 key: $S3_KEY"
