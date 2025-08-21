@@ -130,6 +130,7 @@ jobs:
           # Output the final AMI ID for export
           echo "ami_id=$NEW_AMI_ID" >> $GITHUB_OUTPUT
           echo "final_name=$FINAL_NAME" >> $GITHUB_OUTPUT
+          echo "aap_version=$AAP_VERSION" >> $GITHUB_OUTPUT
           echo "Final AMI ready: $NEW_AMI_ID ($FINAL_NAME)"
 
       - name: Export AMI to S3 as qcow2
@@ -146,18 +147,16 @@ jobs:
           echo "Exporting AMI $AMI_ID to S3 bucket: s3://$S3_BUCKET (root)"
           
           # Create VM export task (using raw format as QCOW2 is not supported)
-          S3_KEY="$EXPORT_TASK_NAME.raw"
           EXPORT_TASK_ID=$(aws ec2 export-image \
             --image-id "$AMI_ID" \
             --disk-image-format raw \
-            --s3-export-location S3Bucket="$S3_BUCKET",S3Prefix="$S3_KEY" \
+            --s3-export-location S3Bucket="$S3_BUCKET",S3Prefix="" \
             --description "AAP $FLAVOR_LOWER raw export from $AMI_ID (for qcow2 conversion)" \
             --tag-specifications "ResourceType=export-image-task,Tags=[{Key=Name,Value=$EXPORT_TASK_NAME},{Key=Flavor,Value=$FLAVOR_LOWER},{Key=BuildDate,Value=$(date +%Y-%m-%d)}]" \
             --query 'ExportImageTaskId' \
             --output text)
           
           echo "export_task_id=$EXPORT_TASK_ID" >> $GITHUB_OUTPUT
-          echo "s3_key=$S3_KEY" >> $GITHUB_OUTPUT
           echo "Started export task: $EXPORT_TASK_ID"
 
       - name: Wait for export completion
@@ -186,20 +185,19 @@ jobs:
             
             if [ "$STATUS" = "completed" ]; then
               S3_BUCKET="${{ secrets.S3_BUCKET_NAME || 'aap-qcow2-images' }}"
-              S3_KEY="${{ steps.export-ami.outputs.s3_key }}"
               
-              # Verify S3_KEY is set
+              # Get the actual S3 key from AWS (since AWS generates its own filename)
+              S3_KEY=$(aws ec2 describe-export-image-tasks \
+                --export-image-task-ids "$EXPORT_TASK_ID" \
+                --query 'ExportImageTasks[0].S3ExportLocation.S3Key' \
+                --output text)
+              
               if [ "$S3_KEY" = "None" ] || [ -z "$S3_KEY" ]; then
-                echo "Error: S3_KEY is not properly set. Attempting to retrieve from AWS..."
-                S3_KEY=$(aws ec2 describe-export-image-tasks \
-                  --export-image-task-ids "$EXPORT_TASK_ID" \
-                  --query 'ExportImageTasks[0].S3ExportLocation.S3Key' \
-                  --output text)
-                if [ "$S3_KEY" = "None" ] || [ -z "$S3_KEY" ]; then
-                  echo "Error: Unable to retrieve S3_KEY from AWS. Export may have failed."
-                  exit 1
-                fi
+                echo "Error: Unable to retrieve S3_KEY from AWS. Export may have failed."
+                exit 1
               fi
+              
+              echo "AWS generated S3 key: $S3_KEY"
               
               echo "Raw image export completed!"
               echo "Raw image available at: s3://$S3_BUCKET/$S3_KEY"
@@ -207,7 +205,11 @@ jobs:
               # Convert raw to qcow2 using qemu-img in a container
               echo "Converting raw image to qcow2 format..."
               RAW_FILE=$(basename "$S3_KEY")
-              QCOW2_FILE="${RAW_FILE%.raw}.qcow2"
+              
+              # Create a cleaner qcow2 filename with AAP version
+              FLAVOR_LOWER=$(echo "${{ matrix.flavor }}" | tr '[:upper:]' '[:lower:]')
+              AAP_VERSION="${{ steps.get-ami.outputs.aap_version || '2.5-17' }}"
+              QCOW2_FILE="aap-${AAP_VERSION}-${FLAVOR_LOWER}-$(date +%Y%m%d).qcow2"
               
               # Download raw image
               echo "Downloading raw image..."
@@ -234,15 +236,19 @@ jobs:
               
               # Upload qcow2 back to S3
               echo "Uploading qcow2 image..."
-              QCOW2_S3_KEY="${S3_KEY%.raw}.qcow2"
-              aws s3 cp "$QCOW2_FILE" "s3://$S3_BUCKET/$QCOW2_S3_KEY"
+              aws s3 cp "$QCOW2_FILE" "s3://$S3_BUCKET/$QCOW2_FILE"
+              
+              # Clean up raw file from S3 to save storage costs
+              echo "Removing raw file from S3..."
+              aws s3 rm "s3://$S3_BUCKET/$S3_KEY"
               
               # Clean up local files
               rm -f "$RAW_FILE" "$QCOW2_FILE"
               
               echo "Conversion completed!"
-              echo "qcow2 image available at: s3://$S3_BUCKET/$QCOW2_S3_KEY"
-              echo "s3_url=s3://$S3_BUCKET/$QCOW2_S3_KEY" >> $GITHUB_OUTPUT
+              echo "qcow2 image available at: s3://$S3_BUCKET/$QCOW2_FILE"
+              echo "Raw file removed from S3 to save storage costs"
+              echo "s3_url=s3://$S3_BUCKET/$QCOW2_FILE" >> $GITHUB_OUTPUT
               break
             elif [ "$STATUS" = "cancelled" ] || [ "$STATUS" = "cancelling" ]; then
               echo "Export was cancelled"
