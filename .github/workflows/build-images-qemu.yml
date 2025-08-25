@@ -121,6 +121,51 @@ jobs:
           echo "RHEL image copied successfully"
           ls -la /tmp/rhel-9-cloud.qcow2
 
+      - name: Create cloud-init configuration
+        run: |
+          echo "Creating cloud-init configuration for SSH access..."
+          mkdir -p cloud-init
+          cat > cloud-init/meta-data << 'EOF'
+          instance-id: aap-qemu-build
+          local-hostname: aap-qemu-build
+          EOF
+          
+          cat > cloud-init/user-data << 'EOF'
+          #cloud-config
+          users:
+            - name: ec2-user
+              sudo: ALL=(ALL) NOPASSWD:ALL
+              shell: /bin/bash
+              lock_passwd: true
+
+          ssh_pwauth: false
+          disable_root: false
+
+          # Ensure SSH service is enabled and started
+          bootcmd:
+            - systemctl enable sshd
+            - systemctl start sshd
+
+          # Set timezone
+          timezone: UTC
+
+          # Configure package updates
+          package_update: false
+          package_upgrade: false
+
+          # Ensure cloud-init completes quickly
+          cloud_final_modules:
+            - scripts-user
+            - ssh-authkey-fingerprints
+            - keys-to-console
+            - phone-home
+            - final-message
+            - power-state-change
+          EOF
+          
+          echo "Cloud-init configuration created"
+          ls -la cloud-init/
+
       - name: Build AAP AMI with Amazon EBS
         run: |
           echo "Building AAP AMI with Amazon EBS"
