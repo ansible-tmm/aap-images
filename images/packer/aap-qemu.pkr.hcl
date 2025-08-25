@@ -91,7 +91,7 @@ locals {
 
 source "qemu" "rhel9" {
     // Use RHEL 9 qcow2 image downloaded from S3
-    iso_url = "file://${path.root}/rhel-9-cloud.qcow2"
+    iso_url = "file://images/packer/rhel-9-cloud.qcow2"
     iso_checksum = "md5:feeb39715742fa127e35c08e1f56ffe2"
     
     // Use qcow2 format for direct output
