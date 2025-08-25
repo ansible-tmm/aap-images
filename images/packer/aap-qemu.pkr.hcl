@@ -45,6 +45,12 @@ variable "aws_region" {
     default = "us-east-1"
 }
 
+variable "aap_version" {
+    type    = string
+    default = null
+    description = "AAP version to use for naming. If not provided, version will be extracted from the installer."
+}
+
 locals {
     // Define components with enabled flags and labels (lowercase)
     aap_components = {
@@ -162,8 +168,8 @@ build {
             "  echo \"$AAP_VERSION\" > /tmp/aap_version.txt",
             "  echo \"Version saved to /tmp/aap_version.txt\"",
             "else",
-            "  echo \"Warning: version.txt not found, using fallback version\"",
-            "  echo \"2.5-17\" > /tmp/aap_version.txt",
+            "  echo \"Error: version.txt not found, cannot determine AAP version\"",
+            "  exit 1",
             "fi"
         ]
     }
@@ -228,7 +234,7 @@ build {
     provisioner "shell-local" {
         inline = [
             "echo 'Uploading qcow2 image to S3...'",
-            "AAP_VERSION=$(cat /tmp/aap_version_*.txt 2>/dev/null || echo '2.5-17')",
+            "${var.aap_version != null ? "AAP_VERSION=\"${var.aap_version}\"" : "AAP_VERSION=$(cat /tmp/aap_version_*.txt)"}",
             "FILENAME=\"aap-$AAP_VERSION-${local.image_label}-${formatdate("YYYYMMDD", timestamp())}.qcow2\"",
             "aws s3 cp output-qemu/${local.output_filename}.qcow2 s3://${var.s3_bucket}/$FILENAME",
             "echo \"Successfully uploaded to s3://${var.s3_bucket}/$FILENAME\""
