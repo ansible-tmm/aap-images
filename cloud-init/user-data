@@ -1,0 +1,30 @@
+#cloud-config
+users:
+  - name: ec2-user
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    lock_passwd: true
+
+ssh_pwauth: false
+disable_root: false
+
+# Ensure SSH service is enabled and started
+bootcmd:
+  - systemctl enable sshd
+  - systemctl start sshd
+
+# Set timezone
+timezone: UTC
+
+# Configure package updates
+package_update: false
+package_upgrade: false
+
+# Ensure cloud-init completes quickly
+cloud_final_modules:
+  - scripts-user
+  - ssh-authkey-fingerprints
+  - keys-to-console
+  - phone-home
+  - final-message
+  - power-state-change

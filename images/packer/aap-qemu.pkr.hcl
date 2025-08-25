@@ -105,9 +105,11 @@ source "qemu" "rhel9" {
     disk_size = "30G"
     
     // Network and SSH configuration
+    communicator = "ssh"
     ssh_username = "ec2-user"
-    ssh_timeout = "20m"
-    ssh_wait_timeout = "20m"
+    ssh_timeout = "10m"
+    ssh_wait_timeout = "10m"
+    ssh_handshake_attempts = 100
     
     // Output configuration
     vm_name = "${local.output_filename}.qcow2"
@@ -116,6 +118,10 @@ source "qemu" "rhel9" {
     // Boot configuration for cloud image
     boot_wait = "10s"
     boot_command = []
+    
+    // Cloud-init configuration for SSH access
+    cd_files = ["${path.root}/cloud-init/"]
+    cd_label = "cidata"
     
     // QEMU specific settings
     qemu_binary = "qemu-system-x86_64"
