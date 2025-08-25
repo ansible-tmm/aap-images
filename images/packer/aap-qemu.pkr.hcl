@@ -224,22 +224,14 @@ build {
         strip_path = true
     }
     
-    // Upload directly to S3
-    post-processor "amazon-s3" {
-        access_key = env("AWS_ACCESS_KEY_ID")
-        secret_key = env("AWS_SECRET_ACCESS_KEY")
-        region = var.aws_region
-        bucket = var.s3_bucket
-        
-        // Rename file to include AAP version
-        key = "aap-{{ user `aap_version` }}-${local.image_label}-${formatdate("YYYYMMDD", timestamp())}.qcow2"
-        
-        // Set appropriate metadata
-        metadata = {
-            "Built-By" = "Packer-QEMU"
-            "Build-Date" = "${formatdate("YYYY-MM-DD", timestamp())}"
-            "Components" = "${local.image_label}"
-            "AAP-Version" = "{{ user `aap_version` }}"
-        }
+    // Upload to S3 using shell script
+    provisioner "shell-local" {
+        inline = [
+            "echo 'Uploading qcow2 image to S3...'",
+            "AAP_VERSION=$(cat /tmp/aap_version_*.txt 2>/dev/null || echo '2.5-17')",
+            "FILENAME=\"aap-$AAP_VERSION-${local.image_label}-${formatdate("YYYYMMDD", timestamp())}.qcow2\"",
+            "aws s3 cp output-qemu/${local.output_filename}.qcow2 s3://${var.s3_bucket}/$FILENAME",
+            "echo \"Successfully uploaded to s3://${var.s3_bucket}/$FILENAME\""
+        ]
     }
 }
