@@ -108,7 +108,7 @@ jobs:
           if [ -f images/packer/rhel-9-cloud.qcow2 ]; then
             echo "File size: $(ls -lh images/packer/rhel-9-cloud.qcow2 | awk '{print $5}')"
             echo "MD5 checksum: $(md5sum images/packer/rhel-9-cloud.qcow2 | awk '{print $1}')"
-            echo "Expected MD5: 7d17ddb154c57a04b7a4bbb769860633"
+            echo "Expected MD5: 976bd3e1a11f66b89a31ab8a741b8110"
           else
             echo "RHEL image file not found!"
           fi
