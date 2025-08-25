@@ -90,8 +90,8 @@ locals {
 }
 
 source "qemu" "rhel9" {
-    // Use RHEL 9 qcow2 image from S3 as base
-    iso_url = "s3://rhel-base-images-bucket/rhel-9-cloud.qcow2"
+    // Use RHEL 9 qcow2 image downloaded from S3
+    iso_url = "file://rhel-9-cloud.qcow2"
     iso_checksum = "md5:feeb39715742fa127e35c08e1f56ffe2"
     
     // Use qcow2 format for direct output
@@ -127,6 +127,19 @@ source "qemu" "rhel9" {
 
 build {
     sources = ["source.qemu.rhel9"]
+
+    // Download RHEL base image from S3 before build
+    provisioner "shell-local" {
+        inline = [
+            "echo 'Downloading RHEL 9 base image from S3...'",
+            "if [ ! -f rhel-9-cloud.qcow2 ]; then",
+            "  aws s3 cp s3://rhel-base-images-bucket/rhel-9-cloud.qcow2 ./rhel-9-cloud.qcow2",
+            "  echo 'RHEL 9 base image downloaded successfully'",
+            "else",
+            "  echo 'RHEL 9 base image already exists, skipping download'",
+            "fi"
+        ]
+    }
 
     // Pre-build debug
     provisioner "shell" {
