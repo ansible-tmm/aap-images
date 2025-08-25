@@ -51,6 +51,17 @@ jobs:
         id: validate
         run: "packer validate ${{ env.PACKER_FILE }}"
 
+      - name: Download RHEL 9 base image from S3
+        run: |
+          cd images/packer
+          if [ ! -f rhel-9-cloud.qcow2 ]; then
+            echo "Downloading RHEL 9 base image from S3..."
+            aws s3 cp s3://rhel-base-images-bucket/rhel-9-cloud.qcow2 ./rhel-9-cloud.qcow2
+            echo "RHEL 9 base image downloaded successfully"
+          else
+            echo "RHEL 9 base image already exists, skipping download"
+          fi
+
       - name: Set build variables based on flavor
         run: |
           if [[ "${{ matrix.flavor }}" == "C" ]]; then
