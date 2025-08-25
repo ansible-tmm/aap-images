@@ -1,0 +1,172 @@
+name: Build AAP Images with QEMU (Fast Build)
+
+on:
+  workflow_dispatch:
+
+env:
+  PACKER_VERSION: "latest"
+  PACKER_FILE: ./images/packer/aap-qemu.pkr.hcl
+  INSTALLER_URL: ${{ secrets.INSTALLER_URL }}
+  INSTALLER_REGISTRY_USERNAME: ${{ secrets.INSTALLER_REGISTRY_USERNAME }}
+  INSTALLER_REGISTRY_PASSWORD: ${{ secrets.INSTALLER_REGISTRY_PASSWORD }}
+  INSTALLER_ADMIN_PW: ${{ secrets.INSTALLER_ADMIN_PW }}
+  GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+  RHEL_USER_PASSWORD: ${{ secrets.RHEL_USER_PASSWORD }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        flavor: [C, CE, CH, CEH]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials for S3 access
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION || 'us-east-1' }}
+
+      - name: Install QEMU
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86_64 qemu-utils
+          qemu-system-x86_64 --version
+
+      - name: Set up Packer
+        uses: hashicorp/setup-packer@main
+        with:
+          version: ${{ env.PACKER_VERSION }}
+
+      - name: Run `packer init`
+        id: init
+        run: "packer init ${{ env.PACKER_FILE }}"
+
+      - name: Run `packer validate`
+        id: validate
+        run: "packer validate ${{ env.PACKER_FILE }}"
+
+      - name: Set build variables based on flavor
+        run: |
+          if [[ "${{ matrix.flavor }}" == "C" ]]; then
+            export AAP_INCLUDE_CONTROLLER=true
+            export AAP_INCLUDE_EDA_CONTROLLER=false
+            export AAP_INCLUDE_AUTOMATION_HUB=false
+          elif [[ "${{ matrix.flavor }}" == "CE" ]]; then
+            export AAP_INCLUDE_CONTROLLER=true
+            export AAP_INCLUDE_EDA_CONTROLLER=true
+            export AAP_INCLUDE_AUTOMATION_HUB=false
+          elif [[ "${{ matrix.flavor }}" == "CH" ]]; then
+            export AAP_INCLUDE_CONTROLLER=true
+            export AAP_INCLUDE_EDA_CONTROLLER=false
+            export AAP_INCLUDE_AUTOMATION_HUB=true
+          elif [[ "${{ matrix.flavor }}" == "CEH" ]]; then
+            export AAP_INCLUDE_CONTROLLER=true
+            export AAP_INCLUDE_EDA_CONTROLLER=true
+            export AAP_INCLUDE_AUTOMATION_HUB=true
+          fi
+
+          echo "AAP_INCLUDE_CONTROLLER=${AAP_INCLUDE_CONTROLLER}" >> $GITHUB_ENV
+          echo "AAP_INCLUDE_EDA_CONTROLLER=${AAP_INCLUDE_EDA_CONTROLLER}" >> $GITHUB_ENV
+          echo "AAP_INCLUDE_AUTOMATION_HUB=${AAP_INCLUDE_AUTOMATION_HUB}" >> $GITHUB_ENV
+
+      - name: Build AAP AMI with Amazon EBS
+        run: |
+          echo "Building AAP AMI with Amazon EBS"
+          echo "Components: Controller=$AAP_INCLUDE_CONTROLLER, EDA=$AAP_INCLUDE_EDA_CONTROLLER, Hub=$AAP_INCLUDE_AUTOMATION_HUB"
+          
+          # Extract AAP version for filename
+          AAP_VERSION="2.5-17"  # Default fallback
+          if [ -f /tmp/aap_version_*.txt ]; then
+            AAP_VERSION=$(cat /tmp/aap_version_*.txt)
+          fi
+          
+          echo "AAP_VERSION=${AAP_VERSION}" >> $GITHUB_ENV
+          
+          # Build with Packer
+          packer build \
+            -var "aap_include_controller=${AAP_INCLUDE_CONTROLLER}" \
+            -var "aap_include_eda_controller=${AAP_INCLUDE_EDA_CONTROLLER}" \
+            -var "aap_include_automation_hub=${AAP_INCLUDE_AUTOMATION_HUB}" \
+            -var "aws_region=${{ secrets.AWS_REGION || 'us-east-1' }}" \
+            -var "aap_version=${AAP_VERSION}" \
+            ${{ env.PACKER_FILE }}
+
+      - name: Get build artifacts info
+        id: get-artifacts
+        run: |
+          # Get information from manifest
+          if [ -f manifest-ami.json ]; then
+            ARTIFACT_ID=$(jq -r '.builds[0].artifact_id' manifest-ami.json)
+            AMI_ID=$(echo $ARTIFACT_ID | cut -d':' -f2)
+            echo "artifact_id=$ARTIFACT_ID" >> $GITHUB_OUTPUT
+            echo "ami_id=$AMI_ID" >> $GITHUB_OUTPUT
+            echo "Build artifact: $ARTIFACT_ID"
+            echo "AMI ID: $AMI_ID"
+          else
+            echo "Warning: manifest-ami.json not found"
+          fi
+          
+          # Extract final AAP version if available
+          if [ -f /tmp/aap_version_*.txt ]; then
+            FINAL_AAP_VERSION=$(cat /tmp/aap_version_*.txt)
+            echo "final_aap_version=$FINAL_AAP_VERSION" >> $GITHUB_OUTPUT
+            echo "Final AAP Version: $FINAL_AAP_VERSION"
+          fi
+          
+          # Determine final AMI name
+          FLAVOR_LOWER=$(echo "${{ matrix.flavor }}" | tr '[:upper:]' '[:lower:]')
+          FINAL_AMI_NAME="aap-${FINAL_AAP_VERSION:-2.5-17}-${FLAVOR_LOWER}-$(date +%Y%m%d)"
+          echo "final_ami_name=$FINAL_AMI_NAME" >> $GITHUB_OUTPUT
+          echo "Final AMI name: $FINAL_AMI_NAME"
+
+      - name: Verify AMI creation
+        id: verify-ami
+        run: |
+          AMI_ID="${{ steps.get-artifacts.outputs.ami_id }}"
+          
+          echo "Checking if AMI was created successfully..."
+          if [ -n "$AMI_ID" ]; then
+            AMI_STATE=$(aws ec2 describe-images --image-ids $AMI_ID --query 'Images[0].State' --output text)
+            AMI_NAME=$(aws ec2 describe-images --image-ids $AMI_ID --query 'Images[0].Name' --output text)
+            
+            echo "SUCCESS: AMI created with ID: $AMI_ID"
+            echo "AMI Name: $AMI_NAME"
+            echo "AMI State: $AMI_STATE"
+            
+            echo "ami_id=$AMI_ID" >> $GITHUB_OUTPUT
+            echo "ami_name=$AMI_NAME" >> $GITHUB_OUTPUT
+            echo "ami_state=$AMI_STATE" >> $GITHUB_OUTPUT
+          else
+            echo "ERROR: AMI ID not found in build artifacts"
+            exit 1
+          fi
+
+      - name: Cleanup local artifacts
+        if: always()
+        run: |
+          echo "Cleaning up local build artifacts..."
+          rm -f manifest-ami.json
+          rm -f /tmp/aap_version_*.txt
+          echo "Local cleanup completed"
+
+      - name: Generate build summary
+        if: success()
+        run: |
+          echo "## AAP qcow2 Image Build Complete - Flavor: ${{ matrix.flavor }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Method:** Direct QEMU build (no AMI export needed)" >> $GITHUB_STEP_SUMMARY
+          echo "**Filename:** ${{ steps.get-artifacts.outputs.final_filename }}" >> $GITHUB_STEP_SUMMARY
+          echo "**S3 Location:** ${{ steps.verify-upload.outputs.s3_url }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Build Date:** $(date)" >> $GITHUB_STEP_SUMMARY
+          echo "**AAP Version:** ${{ steps.get-artifacts.outputs.final_aap_version }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Components:**" >> $GITHUB_STEP_SUMMARY
+          echo "- Controller: ${AAP_INCLUDE_CONTROLLER}" >> $GITHUB_STEP_SUMMARY
+          echo "- EDA: ${AAP_INCLUDE_EDA_CONTROLLER}" >> $GITHUB_STEP_SUMMARY
+          echo "- Hub: ${AAP_INCLUDE_AUTOMATION_HUB}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Advantages:** Faster build, direct qcow2 output, no AWS export complexity" >> $GITHUB_STEP_SUMMARY
