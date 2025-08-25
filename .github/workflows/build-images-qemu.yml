@@ -86,6 +86,25 @@ jobs:
           echo "AAP_INCLUDE_EDA_CONTROLLER=${AAP_INCLUDE_EDA_CONTROLLER}" >> $GITHUB_ENV
           echo "AAP_INCLUDE_AUTOMATION_HUB=${AAP_INCLUDE_AUTOMATION_HUB}" >> $GITHUB_ENV
 
+      - name: Debug file locations before build
+        run: |
+          echo "=== DEBUG: File locations before packer build ==="
+          echo "Current working directory:"
+          pwd
+          echo ""
+          echo "Files in current directory:"
+          ls -la
+          echo ""
+          echo "Contents of images/ directory:"
+          ls -la images/ || echo "images/ directory not found"
+          echo ""
+          echo "Contents of images/packer/ directory:"
+          ls -la images/packer/ || echo "images/packer/ directory not found"
+          echo ""
+          echo "Looking for RHEL image file:"
+          find . -name "rhel-9-cloud.qcow2" -type f || echo "No rhel-9-cloud.qcow2 files found"
+          echo "=== END DEBUG ==="
+
       - name: Build AAP AMI with Amazon EBS
         run: |
           echo "Building AAP AMI with Amazon EBS"
