@@ -127,14 +127,15 @@ jobs:
           
           echo "AAP_VERSION=${AAP_VERSION}" >> $GITHUB_ENV
           
-          # Build with Packer
+          # Build with Packer (run from images/packer directory so relative paths work)
+          cd images/packer
           packer build \
             -var "aap_include_controller=${AAP_INCLUDE_CONTROLLER}" \
             -var "aap_include_eda_controller=${AAP_INCLUDE_EDA_CONTROLLER}" \
             -var "aap_include_automation_hub=${AAP_INCLUDE_AUTOMATION_HUB}" \
             -var "aws_region=${{ secrets.AWS_REGION || 'us-east-1' }}" \
             -var "aap_version=${AAP_VERSION}" \
-            ${{ env.PACKER_FILE }}
+            aap-qemu.pkr.hcl
 
       - name: Get build artifacts info
         id: get-artifacts
