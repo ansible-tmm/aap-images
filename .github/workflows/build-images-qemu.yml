@@ -114,6 +114,13 @@ jobs:
           fi
           echo "=== END DEBUG ==="
 
+      - name: Copy RHEL image to packer working directory
+        run: |
+          echo "Copying RHEL image to project root for easy access..."
+          cp images/packer/rhel-9-cloud.qcow2 ./rhel-9-cloud.qcow2
+          echo "RHEL image copied successfully"
+          ls -la rhel-9-cloud.qcow2
+
       - name: Build AAP AMI with Amazon EBS
         run: |
           echo "Building AAP AMI with Amazon EBS"
@@ -127,15 +134,14 @@ jobs:
           
           echo "AAP_VERSION=${AAP_VERSION}" >> $GITHUB_ENV
           
-          # Build with Packer (run from images/packer directory so relative paths work)
-          cd images/packer
+          # Build with Packer
           packer build \
             -var "aap_include_controller=${AAP_INCLUDE_CONTROLLER}" \
             -var "aap_include_eda_controller=${AAP_INCLUDE_EDA_CONTROLLER}" \
             -var "aap_include_automation_hub=${AAP_INCLUDE_AUTOMATION_HUB}" \
             -var "aws_region=${{ secrets.AWS_REGION || 'us-east-1' }}" \
             -var "aap_version=${AAP_VERSION}" \
-            aap-qemu.pkr.hcl
+            ${{ env.PACKER_FILE }}
 
       - name: Get build artifacts info
         id: get-artifacts
