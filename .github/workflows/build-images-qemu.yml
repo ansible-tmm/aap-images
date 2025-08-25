@@ -103,6 +103,15 @@ jobs:
           echo ""
           echo "Looking for RHEL image file:"
           find . -name "rhel-9-cloud.qcow2" -type f || echo "No rhel-9-cloud.qcow2 files found"
+          echo ""
+          echo "Checking RHEL image file details:"
+          if [ -f images/packer/rhel-9-cloud.qcow2 ]; then
+            echo "File size: $(ls -lh images/packer/rhel-9-cloud.qcow2 | awk '{print $5}')"
+            echo "MD5 checksum: $(md5sum images/packer/rhel-9-cloud.qcow2 | awk '{print $1}')"
+            echo "Expected MD5: feeb39715742fa127e35c08e1f56ffe2"
+          else
+            echo "RHEL image file not found!"
+          fi
           echo "=== END DEBUG ==="
 
       - name: Build AAP AMI with Amazon EBS
