@@ -114,12 +114,12 @@ jobs:
           fi
           echo "=== END DEBUG ==="
 
-      - name: Copy RHEL image to packer working directory
+      - name: Copy RHEL image to /tmp for easy access
         run: |
-          echo "Copying RHEL image to project root for easy access..."
-          cp images/packer/rhel-9-cloud.qcow2 ./rhel-9-cloud.qcow2
+          echo "Copying RHEL image to /tmp for easy access..."
+          cp images/packer/rhel-9-cloud.qcow2 /tmp/rhel-9-cloud.qcow2
           echo "RHEL image copied successfully"
-          ls -la rhel-9-cloud.qcow2
+          ls -la /tmp/rhel-9-cloud.qcow2
 
       - name: Build AAP AMI with Amazon EBS
         run: |
