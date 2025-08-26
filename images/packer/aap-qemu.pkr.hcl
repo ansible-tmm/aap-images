@@ -91,7 +91,7 @@ locals {
 
 source "qemu" "rhel9" {
     // Use RHEL 9 qcow2 image downloaded from S3
-    iso_url = "file:///tmp/rhel-9-cloud.qcow2"
+    iso_url = "file:///home/runner/work/aap-images/aap-images/images/packer/rhel-9-cloud.qcow2"
     iso_checksum = "md5:976bd3e1a11f66b89a31ab8a741b8110"
     
     // Use qcow2 format for direct output
@@ -120,7 +120,7 @@ source "qemu" "rhel9" {
     boot_command = []
     
     // Cloud-init configuration for SSH access
-    cd_files = ["/tmp/cloud-init/meta-data", "/tmp/cloud-init/user-data"]
+    cd_files = ["/home/runner/work/aap-images/aap-images/cloud-init/meta-data", "/home/runner/work/aap-images/aap-images/cloud-init/user-data"]
     cd_label = "cidata"
     
     // QEMU specific settings
