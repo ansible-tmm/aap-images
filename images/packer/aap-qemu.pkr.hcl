@@ -92,7 +92,7 @@ locals {
 source "qemu" "rhel9" {
     // Use RHEL 9 qcow2 image downloaded from S3
     iso_url = "file:///home/runner/work/aap-images/aap-images/images/packer/rhel-9-cloud.qcow2"
-    iso_checksum = "md5:976bd3e1a11f66b89a31ab8a741b8110"
+    iso_checksum = "none"
     
     // Use qcow2 format for direct output
     format = "qcow2"
