@@ -165,6 +165,10 @@ jobs:
           
           echo "Cloud-init configuration created"
           ls -la cloud-init/
+          
+          echo "Copying cloud-init to /tmp for Packer access..."
+          cp -r cloud-init /tmp/
+          ls -la /tmp/cloud-init/
 
       - name: Verify cloud-init files before build
         run: |
@@ -174,14 +178,22 @@ jobs:
           ls -la
           echo "Cloud-init directory check:"
           if [ -d cloud-init ]; then
-            echo "✓ cloud-init directory exists"
+            echo "✓ cloud-init directory exists in project root"
             ls -la cloud-init/
-            echo "meta-data content:"
-            cat cloud-init/meta-data
-            echo "user-data content:"
-            cat cloud-init/user-data
           else
-            echo "✗ cloud-init directory missing!"
+            echo "✗ cloud-init directory missing from project root!"
+          fi
+          
+          echo "Cloud-init directory check in /tmp:"
+          if [ -d /tmp/cloud-init ]; then
+            echo "✓ cloud-init directory exists in /tmp"
+            ls -la /tmp/cloud-init/
+            echo "meta-data content:"
+            cat /tmp/cloud-init/meta-data
+            echo "user-data content:"
+            cat /tmp/cloud-init/user-data
+          else
+            echo "✗ cloud-init directory missing from /tmp!"
           fi
           echo "=== End verification ==="
 
