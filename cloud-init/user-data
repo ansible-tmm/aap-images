@@ -1,10 +1,15 @@
 #cloud-config
+
+# Create cloud-user with proper password authentication
 users:
-  - name: ec2-user
+  - name: cloud-user
+    gecos: Cloud User
     sudo: ALL=(ALL) NOPASSWD:ALL
+    groups: users,wheel
     shell: /bin/bash
     lock_passwd: false
-    passwd: "packer123"
+    # Password: packer123 (will be replaced with SHA-512 hash by GitHub Actions)
+    passwd: "PLACEHOLDER_PASSWORD_HASH"
 
 ssh_pwauth: true
 disable_root: false

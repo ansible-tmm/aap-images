@@ -121,51 +121,21 @@ jobs:
           ls -la images/packer/rhel-9-cloud.qcow2
           echo "RHEL image verified in images/packer/ directory"
 
-      - name: Create cloud-init configuration
+      - name: Prepare cloud-init configuration with password hashing
         run: |
-          echo "Creating cloud-init configuration for SSH access..."
-          mkdir -p cloud-init
-          cat > cloud-init/meta-data << 'EOF'
-          instance-id: aap-qemu-build
-          local-hostname: aap-qemu-build
-          EOF
+          echo "Generating hashed password for cloud-init..."
+          # Generate SHA-512 hash for password 'packer123'
+          HASHED_PASSWORD=$(python3 -c "import crypt; print(crypt.crypt('packer123', crypt.mksalt(crypt.METHOD_SHA512)))")
+          echo "Generated password hash (first 20 chars): ${HASHED_PASSWORD:0:20}..."
           
-          cat > cloud-init/user-data << 'EOF'
-          #cloud-config
-          users:
-            - name: ec2-user
-              sudo: ALL=(ALL) NOPASSWD:ALL
-              shell: /bin/bash
-              lock_passwd: false
-              passwd: "packer123"
-
-          ssh_pwauth: true
-          disable_root: false
-
-          # Ensure SSH service is enabled and started
-          bootcmd:
-            - systemctl enable sshd
-            - systemctl start sshd
-
-          # Set timezone
-          timezone: UTC
-
-          # Configure package updates
-          package_update: false
-          package_upgrade: false
-
-          # Ensure cloud-init completes quickly
-          cloud_final_modules:
-            - scripts-user
-            - ssh-authkey-fingerprints
-            - keys-to-console
-            - phone-home
-            - final-message
-            - power-state-change
-          EOF
+          # Update cloud-init user-data with the generated hash
+          sed -i "s|PLACEHOLDER_PASSWORD_HASH|$HASHED_PASSWORD|" cloud-init/user-data
           
-          echo "Cloud-init configuration created"
+          echo "Cloud-init configuration updated with dynamic password hash"
+          echo "Verifying cloud-init files exist:"
           ls -la cloud-init/
+          echo "User-data preview (password hash replaced):"
+          sed 's/\$6\$[^"]*/"[HASHED_PASSWORD]"/g' cloud-init/user-data
 
       - name: Verify cloud-init files before build
         run: |
@@ -223,7 +193,7 @@ jobs:
               if nc -z 127.0.0.1 $port 2>/dev/null; then
                 echo "Port $port is open - testing SSH connectivity"
                 nc -z 127.0.0.1 $port && echo "Port $port responds to connection"
-                timeout 5 ssh -o ConnectTimeout=2 -o StrictHostKeyChecking=no ec2-user@127.0.0.1 -p $port "echo 'SSH working'" || echo "SSH failed on port $port"
+                timeout 5 ssh -o ConnectTimeout=2 -o StrictHostKeyChecking=no cloud-user@127.0.0.1 -p $port "echo 'SSH working'" || echo "SSH failed on port $port"
               fi
             done
             

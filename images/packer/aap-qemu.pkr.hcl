@@ -104,9 +104,10 @@ source "qemu" "rhel9" {
     cpus = 4
     disk_size = "30G"
     
-    // Network and SSH configuration
+    // Network and SSH configuration - cloud-init password auth
     communicator = "ssh"
-    ssh_username = "ec2-user"
+    ssh_username = "cloud-user"
+    ssh_password = "packer123"
     ssh_timeout = "10m"
     ssh_wait_timeout = "10m"
     ssh_handshake_attempts = 100
@@ -114,20 +115,17 @@ source "qemu" "rhel9" {
     ssh_host_port_min = 2222
     ssh_host_port_max = 4444
     
-    // Use password authentication for initial connection
-    ssh_password = "packer123"
-    
     // Output configuration
     vm_name = "${local.output_filename}.qcow2"
     output_directory = "output-qemu"
     
-    // Boot configuration for cloud image
-    boot_wait = "10s"
+    // Boot configuration for cloud image - wait for cloud-init
+    boot_wait = "90s"
     boot_command = []
     
     // Cloud-init configuration for SSH access
     cd_files = ["/home/runner/work/aap-images/aap-images/cloud-init/meta-data", "/home/runner/work/aap-images/aap-images/cloud-init/user-data"]
-    cd_label = "cidata"
+    cd_label = "CIDATA"
     
     // QEMU specific settings
     qemu_binary = "qemu-system-x86_64"
@@ -138,7 +136,8 @@ source "qemu" "rhel9" {
     // Network configuration for SSH access
     qemuargs = [
         ["-netdev", "user,id=user.0,hostfwd=tcp::{{ .SSHHostPort }}-:22"],
-        ["-device", "virtio-net,netdev=user.0"]
+        ["-device", "virtio-net,netdev=user.0"],
+        ["-display", "none"]
     ]
     
 }
@@ -152,17 +151,18 @@ build {
     }
 
 
-    // Create rhel user and setup SSH
+    // Debug cloud-init and verify SSH access
     provisioner "shell" {
         inline = [
-            "sudo useradd -m -s /bin/bash rhel || true",
-            "sudo usermod -aG wheel rhel",
-            "echo 'rhel ALL=(ALL) NOPASSWD:ALL' | sudo tee /etc/sudoers.d/rhel",
-            "sudo mkdir -p /home/rhel/.ssh",
-            "sudo cp /home/ec2-user/.ssh/authorized_keys /home/rhel/.ssh/ || true",
-            "sudo chown -R rhel:rhel /home/rhel/.ssh",
-            "sudo chmod 700 /home/rhel/.ssh",
-            "sudo chmod 600 /home/rhel/.ssh/authorized_keys || true"
+            "echo 'Current user:'",
+            "whoami",
+            "echo 'User details:'",
+            "id",
+            "echo 'Testing sudo access:'",
+            "sudo whoami",
+            "echo 'Cloud-init status:'",
+            "cloud-init status || echo 'cloud-init status not available'",
+            "echo 'SSH connection successful with cloud-user!'"
         ]
     }
 
@@ -170,7 +170,7 @@ build {
     provisioner "ansible" {
         command = "ansible-playbook"
         playbook_file = "${path.root}/../aap/playbooks/pre-install.yml"
-        user = "ec2-user"
+        user = "cloud-user"
         inventory_file_template = "controller ansible_host={{ .Host }} ansible_user={{ .User }} ansible_port={{ .Port }}\n"
         use_proxy = false
         extra_arguments = local.extra_args
@@ -217,7 +217,7 @@ build {
     provisioner "ansible" {
         command = "ansible-playbook"
         playbook_file = "${path.root}/../aap/playbooks/post-install.yml"
-        user = "ec2-user"
+        user = "cloud-user"
         inventory_file_template = "controller ansible_host={{ .Host }} ansible_user={{ .User }} ansible_port={{ .Port }}\n"
         use_proxy = false
         extra_arguments = local.extra_args
@@ -234,7 +234,7 @@ build {
             "# Clear bash history",
             "history -c",
             "sudo rm -f /root/.bash_history",
-            "sudo rm -f /home/ec2-user/.bash_history",
+            "sudo rm -f /home/cloud-user/.bash_history",
             "sudo rm -f /home/rhel/.bash_history || true",
             "# Zero out free space to help compression",
             "sudo dd if=/dev/zero of=/EMPTY bs=1M || true",
