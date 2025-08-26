@@ -32,11 +32,12 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION || 'us-east-1' }}
 
-      - name: Install QEMU
+      - name: Install QEMU and CD creation tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y qemu-system-x86 qemu-utils
+          sudo apt-get install -y qemu-system-x86 qemu-utils xorriso
           qemu-system-x86_64 --version
+          xorriso -version
 
       - name: Set up Packer
         uses: hashicorp/setup-packer@main
