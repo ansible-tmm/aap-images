@@ -120,7 +120,7 @@ source "qemu" "rhel9" {
     boot_command = []
     
     // Cloud-init configuration for SSH access
-    cd_files = ["${path.root}/cloud-init/"]
+    cd_files = ["./cloud-init/"]
     cd_label = "cidata"
     
     // QEMU specific settings
