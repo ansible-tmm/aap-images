@@ -114,12 +114,11 @@ jobs:
           fi
           echo "=== END DEBUG ==="
 
-      - name: Copy RHEL image to /tmp for easy access
+      - name: Verify RHEL image location
         run: |
-          echo "Copying RHEL image to /tmp for easy access..."
-          cp images/packer/rhel-9-cloud.qcow2 /tmp/rhel-9-cloud.qcow2
-          echo "RHEL image copied successfully"
-          ls -la /tmp/rhel-9-cloud.qcow2
+          echo "Verifying RHEL image location..."
+          ls -la images/packer/rhel-9-cloud.qcow2
+          echo "RHEL image verified in images/packer/ directory"
 
       - name: Create cloud-init configuration
         run: |
@@ -165,10 +164,6 @@ jobs:
           
           echo "Cloud-init configuration created"
           ls -la cloud-init/
-          
-          echo "Copying cloud-init to /tmp for Packer access..."
-          cp -r cloud-init /tmp/
-          ls -la /tmp/cloud-init/
 
       - name: Verify cloud-init files before build
         run: |
@@ -184,16 +179,11 @@ jobs:
             echo "✗ cloud-init directory missing from project root!"
           fi
           
-          echo "Cloud-init directory check in /tmp:"
-          if [ -d /tmp/cloud-init ]; then
-            echo "✓ cloud-init directory exists in /tmp"
-            ls -la /tmp/cloud-init/
+          if [ -d cloud-init ]; then
             echo "meta-data content:"
-            cat /tmp/cloud-init/meta-data
+            cat cloud-init/meta-data
             echo "user-data content:"
-            cat /tmp/cloud-init/user-data
-          else
-            echo "✗ cloud-init directory missing from /tmp!"
+            cat cloud-init/user-data
           fi
           echo "=== End verification ==="
 
