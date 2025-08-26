@@ -137,6 +137,7 @@ jobs:
               sudo: ALL=(ALL) NOPASSWD:ALL
               shell: /bin/bash
               lock_passwd: true
+              ssh_authorized_keys: []
 
           ssh_pwauth: false
           disable_root: false
@@ -188,6 +189,11 @@ jobs:
           fi
           echo "=== End verification ==="
 
+      - name: Install network debugging tools
+        run: |
+          sudo apt-get install -y netcat-openbsd
+          nc -h || echo "netcat installed"
+
       - name: Build AAP AMI with Amazon EBS
         run: |
           echo "Building AAP AMI with Amazon EBS"
@@ -201,14 +207,28 @@ jobs:
           
           echo "AAP_VERSION=${AAP_VERSION}" >> $GITHUB_ENV
           
-          # Build with Packer
-          packer build \
+          # Build with Packer (with timeout to allow debugging)
+          timeout 15m packer build \
             -var "aap_include_controller=${AAP_INCLUDE_CONTROLLER}" \
             -var "aap_include_eda_controller=${AAP_INCLUDE_EDA_CONTROLLER}" \
             -var "aap_include_automation_hub=${AAP_INCLUDE_AUTOMATION_HUB}" \
             -var "aws_region=${{ secrets.AWS_REGION || 'us-east-1' }}" \
             -var "aap_version=${AAP_VERSION}" \
-            ${{ env.PACKER_FILE }}
+            ${{ env.PACKER_FILE }} || {
+            echo "Packer build failed or timed out, checking for VM processes..."
+            ps aux | grep qemu || echo "No qemu processes found"
+            
+            echo "Checking for open ports in range 2222-4444..."
+            for port in {2222..2230}; do
+              if nc -z 127.0.0.1 $port 2>/dev/null; then
+                echo "Port $port is open - testing SSH connectivity"
+                nc -z 127.0.0.1 $port && echo "Port $port responds to connection"
+                timeout 5 ssh -o ConnectTimeout=2 -o StrictHostKeyChecking=no ec2-user@127.0.0.1 -p $port "echo 'SSH working'" || echo "SSH failed on port $port"
+              fi
+            done
+            
+            exit 1
+          }
 
       - name: Get build artifacts info
         id: get-artifacts
