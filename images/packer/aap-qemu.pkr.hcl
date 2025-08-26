@@ -114,6 +114,9 @@ source "qemu" "rhel9" {
     ssh_host_port_min = 2222
     ssh_host_port_max = 4444
     
+    // Use password authentication for initial connection
+    ssh_password = "packer123"
+    
     // Output configuration
     vm_name = "${local.output_filename}.qcow2"
     output_directory = "output-qemu"

@@ -3,10 +3,10 @@ users:
   - name: ec2-user
     sudo: ALL=(ALL) NOPASSWD:ALL
     shell: /bin/bash
-    lock_passwd: true
-    ssh_authorized_keys: []
+    lock_passwd: false
+    passwd: "packer123"
 
-ssh_pwauth: false
+ssh_pwauth: true
 disable_root: false
 
 # Ensure SSH service is enabled and started
