@@ -110,6 +110,9 @@ source "qemu" "rhel9" {
     ssh_timeout = "10m"
     ssh_wait_timeout = "10m"
     ssh_handshake_attempts = 100
+    ssh_port = 22
+    ssh_host_port_min = 2222
+    ssh_host_port_max = 4444
     
     // Output configuration
     vm_name = "${local.output_filename}.qcow2"
