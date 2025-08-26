@@ -132,6 +132,12 @@ source "qemu" "rhel9" {
     net_device = "virtio-net"
     disk_interface = "virtio"
     
+    // Network configuration for SSH access
+    qemuargs = [
+        ["-netdev", "user,id=user.0,hostfwd=tcp::{{ .SSHHostPort }}-:22"],
+        ["-device", "virtio-net,netdev=user.0"]
+    ]
+    
 }
 
 build {
