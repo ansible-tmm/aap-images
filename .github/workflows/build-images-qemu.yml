@@ -166,6 +166,25 @@ jobs:
           echo "Cloud-init configuration created"
           ls -la cloud-init/
 
+      - name: Verify cloud-init files before build
+        run: |
+          echo "=== Verifying cloud-init setup before Packer build ==="
+          pwd
+          echo "Current directory contents:"
+          ls -la
+          echo "Cloud-init directory check:"
+          if [ -d cloud-init ]; then
+            echo "✓ cloud-init directory exists"
+            ls -la cloud-init/
+            echo "meta-data content:"
+            cat cloud-init/meta-data
+            echo "user-data content:"
+            cat cloud-init/user-data
+          else
+            echo "✗ cloud-init directory missing!"
+          fi
+          echo "=== End verification ==="
+
       - name: Build AAP AMI with Amazon EBS
         run: |
           echo "Building AAP AMI with Amazon EBS"
