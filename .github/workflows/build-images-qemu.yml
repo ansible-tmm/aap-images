@@ -157,7 +157,6 @@ jobs:
           echo "AAP_VERSION=${AAP_VERSION}" >> $GITHUB_ENV
           
           # Build with Packer (no timeout)
-          export PACKER_LOG=1
           packer build \
             -var "aap_include_controller=${AAP_INCLUDE_CONTROLLER}" \
             -var "aap_include_eda_controller=${AAP_INCLUDE_EDA_CONTROLLER}" \
