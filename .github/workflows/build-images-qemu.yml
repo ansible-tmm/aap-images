@@ -12,6 +12,7 @@ env:
   INSTALLER_ADMIN_PW: ${{ secrets.INSTALLER_ADMIN_PW }}
   GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
   RHEL_USER_PASSWORD: ${{ secrets.RHEL_USER_PASSWORD }}
+  PKR_VAR_ssh_password: ${{ secrets.SSH_PASSWORD }}
 
 jobs:
   build:
@@ -121,41 +122,19 @@ jobs:
           ls -la images/packer/rhel-9-cloud.qcow2
           echo "RHEL image verified in images/packer/ directory"
 
-      - name: Prepare cloud-init configuration with password hashing
+      - name: Verify base image setup
         run: |
-          echo "Generating hashed password for cloud-init..."
-          # Generate SHA-512 hash for password 'packer123'
-          HASHED_PASSWORD=$(python3 -c "import crypt; print(crypt.crypt('packer123', crypt.mksalt(crypt.METHOD_SHA512)))")
-          echo "Generated password hash (first 20 chars): ${HASHED_PASSWORD:0:20}..."
-          
-          # Update cloud-init user-data with the generated hash
-          sed -i "s|PLACEHOLDER_PASSWORD_HASH|$HASHED_PASSWORD|" cloud-init/user-data
-          
-          echo "Cloud-init configuration updated with dynamic password hash"
-          echo "Verifying cloud-init files exist:"
-          ls -la cloud-init/
-          echo "User-data preview (password hash replaced):"
-          sed 's/\$6\$[^"]*/"[HASHED_PASSWORD]"/g' cloud-init/user-data
-
-      - name: Verify cloud-init files before build
-        run: |
-          echo "=== Verifying cloud-init setup before Packer build ==="
+          echo "=== Verifying Image Builder RHEL setup ==="
           pwd
           echo "Current directory contents:"
           ls -la
-          echo "Cloud-init directory check:"
-          if [ -d cloud-init ]; then
-            echo "✓ cloud-init directory exists in project root"
-            ls -la cloud-init/
+          echo "Checking base image file:"
+          if [ -f images/packer/rhel-9-cloud.qcow2 ]; then
+            echo "✓ Base RHEL image exists"
+            echo "File details:"
+            ls -lh images/packer/rhel-9-cloud.qcow2
           else
-            echo "✗ cloud-init directory missing from project root!"
-          fi
-          
-          if [ -d cloud-init ]; then
-            echo "meta-data content:"
-            cat cloud-init/meta-data
-            echo "user-data content:"
-            cat cloud-init/user-data
+            echo "✗ Base RHEL image missing!"
           fi
           echo "=== End verification ==="
 
@@ -193,7 +172,7 @@ jobs:
               if nc -z 127.0.0.1 $port 2>/dev/null; then
                 echo "Port $port is open - testing SSH connectivity"
                 nc -z 127.0.0.1 $port && echo "Port $port responds to connection"
-                timeout 5 ssh -o ConnectTimeout=2 -o StrictHostKeyChecking=no cloud-user@127.0.0.1 -p $port "echo 'SSH working'" || echo "SSH failed on port $port"
+                timeout 5 ssh -o ConnectTimeout=2 -o StrictHostKeyChecking=no rhel@127.0.0.1 -p $port "echo 'SSH working'" || echo "SSH failed on port $port"
               fi
             done
             
