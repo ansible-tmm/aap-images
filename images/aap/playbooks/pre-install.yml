@@ -32,6 +32,35 @@
       register: hostname_check
       failed_when: "'127.0.0.1' not in hostname_check.stdout"
 
+    - name: Check available repositories
+      ansible.builtin.command: dnf repolist --enabled
+      register: enabled_repos
+      become: true
+
+    - name: Debug enabled repositories
+      ansible.builtin.debug:
+        var: enabled_repos.stdout_lines
+
+    - name: Enable EPEL repository
+      ansible.builtin.dnf:
+        name: epel-release
+        state: present
+      become: true
+      ignore_errors: true
+
+    - name: Enable required RHEL repositories
+      ansible.builtin.command: >
+        subscription-manager repos 
+        --enable=rhel-9-for-x86_64-baseos-rpms 
+        --enable=rhel-9-for-x86_64-appstream-rpms
+      become: true
+      ignore_errors: true
+
+    - name: Update package cache
+      ansible.builtin.dnf:
+        update_cache: yes
+      become: true
+
     - name: Install ansible-core, wget, git, rsync, and podman
       ansible.builtin.package:
         name:
