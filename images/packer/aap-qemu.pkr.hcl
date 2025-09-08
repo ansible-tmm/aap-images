@@ -86,7 +86,8 @@ locals {
         "-e", "ansible_python_interpreter=/usr/bin/python3",
         "-e", "aap_include_controller=${var.aap_include_controller}",
         "-e", "aap_include_automation_hub=${var.aap_include_automation_hub}",
-        "-e", "aap_include_eda_controller=${var.aap_include_eda_controller}"
+        "-e", "aap_include_eda_controller=${var.aap_include_eda_controller}",
+        "-e", "ansible_become_pass=${var.ssh_password}"
     ]
 
     // Combine arguments into extra_args
