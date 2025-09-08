@@ -142,7 +142,10 @@ source "qemu" "rhel9" {
         ["-netdev", "user,id=user.0,hostfwd=tcp::{{ .SSHHostPort }}-:22"],
         ["-device", "virtio-net,netdev=user.0"],
         ["-cpu", "Nehalem"],  // Support x86-64-v2 instructions
-        ["-serial", "stdio"]  // Get serial output for debugging
+        ["-serial", "stdio"],  // Get serial output for debugging
+        ["-rtc", "base=utc,clock=host"],  // Fix clock issues
+        ["-no-hpet"],  // Disable HPET to avoid clock conflicts
+        ["-global", "kvm-pit.lost_tick_policy=discard"]  // Improve timing
     ]
     
 }

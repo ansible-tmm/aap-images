@@ -32,63 +32,16 @@
       register: hostname_check
       failed_when: "'127.0.0.1' not in hostname_check.stdout"
 
-    - name: Check available repositories
-      ansible.builtin.command: dnf repolist --enabled
-      register: enabled_repos
-      become: true
-
-    - name: Debug enabled repositories
-      ansible.builtin.debug:
-        var: enabled_repos.stdout_lines
-
-    - name: Enable EPEL repository
-      ansible.builtin.dnf:
-        name: epel-release
+    - name: Verify required packages are installed
+      ansible.builtin.package:
+        name:
+          - ansible-core
+          - wget
+          - git
+          - rsync
+          - podman
         state: present
       become: true
-      ignore_errors: true
-
-    - name: Enable required RHEL repositories
-      ansible.builtin.command: >
-        subscription-manager repos 
-        --enable=rhel-9-for-x86_64-baseos-rpms 
-        --enable=rhel-9-for-x86_64-appstream-rpms
-      become: true
-      ignore_errors: true
-
-    - name: Update package cache
-      ansible.builtin.dnf:
-        update_cache: yes
-      become: true
-
-    - name: Check what packages are available
-      ansible.builtin.command: >
-        dnf search ansible-core wget git rsync podman
-      register: package_search
-      become: true
-      ignore_errors: true
-
-    - name: Debug package availability
-      ansible.builtin.debug:
-        var: package_search.stdout_lines
-
-    - name: Install available packages individually
-      ansible.builtin.dnf:
-        name: "{{ item }}"
-        state: present
-      become: true
-      loop:
-        - ansible
-        - wget
-        - git
-        - rsync
-        - podman
-      ignore_errors: true
-      register: package_install_results
-
-    - name: Debug package installation results
-      ansible.builtin.debug:
-        var: package_install_results
 
     - name: Download Ansible Automation Platform installer
       ansible.builtin.get_url:
