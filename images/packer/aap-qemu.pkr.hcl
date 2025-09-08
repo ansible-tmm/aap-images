@@ -107,8 +107,8 @@ source "qemu" "rhel9" {
     disk_image = true
     use_default_display = true
     
-    // VM configuration
-    memory = 8192
+    // VM configuration - increased for stability
+    memory = 12288  // Increased from 8GB to 12GB
     cpus = 4
     disk_size = "30G"
     
@@ -116,12 +116,14 @@ source "qemu" "rhel9" {
     communicator = "ssh"
     ssh_username = "rhel"
     ssh_password = var.ssh_password
-    ssh_timeout = "10m"
-    ssh_wait_timeout = "10m"
-    ssh_handshake_attempts = 100
+    ssh_timeout = "20m"
+    ssh_wait_timeout = "15m"
+    ssh_handshake_attempts = 200
     ssh_port = 22
     ssh_host_port_min = 2222
     ssh_host_port_max = 4444
+    ssh_keep_alive_interval = "5s"
+    ssh_read_write_timeout = "5s"
     
     // Output configuration
     vm_name = "${local.output_filename}.qcow2"
