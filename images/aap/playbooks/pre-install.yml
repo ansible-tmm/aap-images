@@ -61,16 +61,34 @@
         update_cache: yes
       become: true
 
-    - name: Install ansible-core, wget, git, rsync, and podman
-      ansible.builtin.package:
-        name:
-          - ansible-core
-          - wget
-          - git
-          - rsync
-          - podman
+    - name: Check what packages are available
+      ansible.builtin.command: >
+        dnf search ansible-core wget git rsync podman
+      register: package_search
+      become: true
+      ignore_errors: true
+
+    - name: Debug package availability
+      ansible.builtin.debug:
+        var: package_search.stdout_lines
+
+    - name: Install available packages individually
+      ansible.builtin.dnf:
+        name: "{{ item }}"
         state: present
       become: true
+      loop:
+        - ansible
+        - wget
+        - git
+        - rsync
+        - podman
+      ignore_errors: true
+      register: package_install_results
+
+    - name: Debug package installation results
+      ansible.builtin.debug:
+        var: package_install_results
 
     - name: Download Ansible Automation Platform installer
       ansible.builtin.get_url:
