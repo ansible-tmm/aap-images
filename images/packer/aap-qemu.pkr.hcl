@@ -135,12 +135,13 @@ source "qemu" "rhel9" {
     machine_type = "pc"
     net_device = "virtio-net"
     disk_interface = "virtio"
+    use_default_display = true
     
     // Network configuration for SSH access
     qemuargs = [
         ["-netdev", "user,id=user.0,hostfwd=tcp::{{ .SSHHostPort }}-:22"],
         ["-device", "virtio-net,netdev=user.0"],
-        ["-display", "none"]
+        ["-serial", "stdio"]  // Get serial output for debugging
     ]
     
 }
