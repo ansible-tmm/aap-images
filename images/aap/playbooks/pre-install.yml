@@ -32,32 +32,16 @@
       register: hostname_check
       failed_when: "'127.0.0.1' not in hostname_check.stdout"
 
-    - name: Check system status before package verification
-      ansible.builtin.command: uptime
-      register: system_uptime
-
-    - name: Debug system uptime
-      ansible.builtin.debug:
-        var: system_uptime.stdout
-
-    - name: Check if packages are already installed
-      ansible.builtin.shell: |
-        for pkg in ansible-core wget git rsync podman; do
-          if rpm -q $pkg >/dev/null 2>&1; then
-            echo "$pkg: installed"
-          else
-            echo "$pkg: missing"
-          fi
-        done
-      register: package_status
-
-    - name: Debug package status
-      ansible.builtin.debug:
-        var: package_status.stdout_lines
-
-    - name: Skip package installation since all are already installed
-      ansible.builtin.debug:
-        msg: "All required packages are already installed in the base image: {{ package_status.stdout_lines }}"
+    - name: Verify required packages are installed
+      ansible.builtin.package:
+        name:
+          - ansible-core
+          - wget
+          - git
+          - rsync
+          - podman
+        state: present
+      become: true
 
     - name: Download Ansible Automation Platform installer
       ansible.builtin.get_url:
