@@ -208,8 +208,8 @@ build {
     // Platform install
     provisioner "shell" {
         environment_vars = [
-            "LANG=en_US.UTF-8",
-            "LC_ALL=en_US.UTF-8"
+            "LANG=C.UTF-8",
+            "LC_ALL=C.UTF-8"
         ]
         inline = [
             "if [ -d /tmp/ansible-automation-platform-containerized-setup ]; then",
