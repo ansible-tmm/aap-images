@@ -201,7 +201,7 @@ build {
     // Download the version file from the VM to the Packer host
     provisioner "file" {
         source = "/tmp/aap_version.txt"
-        destination = "/tmp/aap_version_${build.ID}.txt"
+        destination = "/tmp/aap_version_qemu.txt"
         direction = "download"
     }
 
@@ -257,7 +257,7 @@ build {
     provisioner "shell-local" {
         inline = [
             "echo 'Uploading qcow2 image to S3...'",
-            "${var.aap_version != null ? "AAP_VERSION=\"${var.aap_version}\"" : "AAP_VERSION=$(cat /tmp/aap_version_*.txt)"}",
+            "${var.aap_version != null ? "AAP_VERSION=\"${var.aap_version}\"" : "AAP_VERSION=$(cat /tmp/aap_version_qemu.txt)"}",
             "FILENAME=\"aap-$AAP_VERSION-${local.image_label}-${formatdate("YYYYMMDD", timestamp())}.qcow2\"",
             "aws s3 cp output-qemu/${local.output_filename}.qcow2 s3://${var.s3_bucket}/$FILENAME",
             "echo \"Successfully uploaded to s3://${var.s3_bucket}/$FILENAME\""

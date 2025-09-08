@@ -32,6 +32,11 @@
       register: hostname_check
       failed_when: "'127.0.0.1' not in hostname_check.stdout"
 
+    - name: Set system locale
+      ansible.builtin.command: localectl set-locale LANG=en_US.UTF-8
+      become: true
+      ignore_errors: true
+
     - name: Verify required packages are installed
       ansible.builtin.package:
         name:
