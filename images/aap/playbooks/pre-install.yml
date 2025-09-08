@@ -173,17 +173,12 @@
       become: true
       ansible.builtin.shell: echo "rhel:{{ rhel_user_password }}" | chpasswd
 
-    - name: Install cloud-init
-      ansible.builtin.package:
-        name:
-          - cloud-init
-        state: present
-      become: true
+    - name: Verify cloud-init is already installed
+      ansible.builtin.command: rpm -q cloud-init
+      register: cloud_init_check
+      ignore_errors: true
 
-    - name: Enable cloud-init services
-      ansible.builtin.systemd:
-        name: "{{ item }}"
-        enabled: true
-      loop:
-        - cloud-init
+    - name: Debug cloud-init status
+      ansible.builtin.debug:
+        msg: "Cloud-init package status: {{ cloud_init_check.stdout if cloud_init_check.rc == 0 else 'Not installed' }}"
 
