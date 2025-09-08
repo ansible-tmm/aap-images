@@ -171,9 +171,9 @@ build {
         command = "ansible-playbook"
         playbook_file = "${path.root}/../aap/playbooks/pre-install.yml"
         user = "rhel"
-        inventory_file_template = "controller ansible_host={{ .Host }} ansible_user={{ .User }} ansible_port={{ .Port }} ansible_ssh_pass={{ .Password }}\n"
+        inventory_file_template = "controller ansible_host={{ .Host }} ansible_user={{ .User }} ansible_port={{ .Port }} ansible_ssh_pass=${var.ssh_password}\n"
         use_proxy = false
-        extra_arguments = concat(local.extra_args, ["-e", "ansible_ssh_pass={{ .Password }}"])
+        extra_arguments = concat(local.extra_args, ["-e", "ansible_ssh_pass=${var.ssh_password}"])
     }
 
     // Extract version information from the VM and save to build environment
@@ -218,9 +218,9 @@ build {
         command = "ansible-playbook"
         playbook_file = "${path.root}/../aap/playbooks/post-install.yml"
         user = "rhel"
-        inventory_file_template = "controller ansible_host={{ .Host }} ansible_user={{ .User }} ansible_port={{ .Port }} ansible_ssh_pass={{ .Password }}\n"
+        inventory_file_template = "controller ansible_host={{ .Host }} ansible_user={{ .User }} ansible_port={{ .Port }} ansible_ssh_pass=${var.ssh_password}\n"
         use_proxy = false
-        extra_arguments = concat(local.extra_args, ["-e", "ansible_ssh_pass={{ .Password }}"])
+        extra_arguments = concat(local.extra_args, ["-e", "ansible_ssh_pass=${var.ssh_password}"])
     }
 
     // Image cleanup
