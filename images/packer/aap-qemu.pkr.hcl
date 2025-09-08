@@ -51,6 +51,13 @@ variable "aap_version" {
     description = "AAP version to use for naming. If not provided, version will be extracted from the installer."
 }
 
+variable "ssh_password" {
+    type    = string
+    default = null
+    description = "SSH password for the rhel user"
+    sensitive = true
+}
+
 locals {
     // Define components with enabled flags and labels (lowercase)
     aap_components = {
@@ -104,10 +111,10 @@ source "qemu" "rhel9" {
     cpus = 4
     disk_size = "30G"
     
-    // Network and SSH configuration - cloud-init password auth
+    // Network and SSH configuration - direct user auth
     communicator = "ssh"
-    ssh_username = "cloud-user"
-    ssh_password = "packer123"
+    ssh_username = "rhel"
+    ssh_password = var.ssh_password
     ssh_timeout = "10m"
     ssh_wait_timeout = "10m"
     ssh_handshake_attempts = 100
@@ -119,13 +126,9 @@ source "qemu" "rhel9" {
     vm_name = "${local.output_filename}.qcow2"
     output_directory = "output-qemu"
     
-    // Boot configuration for cloud image - wait for cloud-init
-    boot_wait = "90s"
+    // Boot configuration - minimal wait since no cloud-init needed
+    boot_wait = "30s"
     boot_command = []
-    
-    // Cloud-init configuration for SSH access
-    cd_files = ["/home/runner/work/aap-images/aap-images/cloud-init/meta-data", "/home/runner/work/aap-images/aap-images/cloud-init/user-data"]
-    cd_label = "CIDATA"
     
     // QEMU specific settings
     qemu_binary = "qemu-system-x86_64"
@@ -151,18 +154,14 @@ build {
     }
 
 
-    // Debug cloud-init and verify SSH access
+    // Debug and verify SSH access
     provisioner "shell" {
         inline = [
             "echo 'Current user:'",
             "whoami",
             "echo 'User details:'",
             "id",
-            "echo 'Testing sudo access:'",
-            "sudo whoami",
-            "echo 'Cloud-init status:'",
-            "cloud-init status || echo 'cloud-init status not available'",
-            "echo 'SSH connection successful with cloud-user!'"
+            "echo 'SSH connection successful with rhel user!'"
         ]
     }
 
@@ -170,7 +169,7 @@ build {
     provisioner "ansible" {
         command = "ansible-playbook"
         playbook_file = "${path.root}/../aap/playbooks/pre-install.yml"
-        user = "cloud-user"
+        user = "rhel"
         inventory_file_template = "controller ansible_host={{ .Host }} ansible_user={{ .User }} ansible_port={{ .Port }}\n"
         use_proxy = false
         extra_arguments = local.extra_args
@@ -217,7 +216,7 @@ build {
     provisioner "ansible" {
         command = "ansible-playbook"
         playbook_file = "${path.root}/../aap/playbooks/post-install.yml"
-        user = "cloud-user"
+        user = "rhel"
         inventory_file_template = "controller ansible_host={{ .Host }} ansible_user={{ .User }} ansible_port={{ .Port }}\n"
         use_proxy = false
         extra_arguments = local.extra_args
@@ -234,8 +233,7 @@ build {
             "# Clear bash history",
             "history -c",
             "sudo rm -f /root/.bash_history",
-            "sudo rm -f /home/cloud-user/.bash_history",
-            "sudo rm -f /home/rhel/.bash_history || true",
+            "sudo rm -f /home/rhel/.bash_history",
             "# Zero out free space to help compression",
             "sudo dd if=/dev/zero of=/EMPTY bs=1M || true",
             "sudo rm -f /EMPTY"
