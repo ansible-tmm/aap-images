@@ -135,7 +135,6 @@ source "qemu" "rhel9" {
     machine_type = "pc"
     net_device = "virtio-net"
     disk_interface = "virtio"
-    use_default_display = true
     
     // Network configuration for SSH access
     qemuargs = [
