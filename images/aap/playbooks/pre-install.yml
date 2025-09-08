@@ -169,9 +169,7 @@
         state: restarted
       become: true
 
-    - name: Set password for rhel user using variable
-      become: true
-      ansible.builtin.shell: echo "rhel:{{ rhel_user_password }}" | chpasswd
+    # Password will be set during image deployment, not during build
 
     - name: Verify cloud-init is already installed
       ansible.builtin.command: rpm -q cloud-init
