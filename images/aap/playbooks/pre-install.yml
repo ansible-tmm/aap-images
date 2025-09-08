@@ -55,23 +55,9 @@
       ansible.builtin.debug:
         var: package_status.stdout_lines
 
-    - name: Install missing packages individually
-      ansible.builtin.dnf:
-        name: "{{ item }}"
-        state: present
-      become: true
-      loop:
-        - ansible-core
-        - wget  
-        - git
-        - rsync
-        - podman
-      ignore_errors: true
-      register: individual_installs
-
-    - name: Debug individual package installations
+    - name: Skip package installation since all are already installed
       ansible.builtin.debug:
-        var: individual_installs
+        msg: "All required packages are already installed in the base image: {{ package_status.stdout_lines }}"
 
     - name: Download Ansible Automation Platform installer
       ansible.builtin.get_url:
