@@ -80,7 +80,7 @@ locals {
     image_label    = join("", local.enabled_labels)
     
     // Create ansible vars argument list depending on the presence of ansible_vars_file
-    extra_args_file = var.ansible_vars_file != null ? ["-e", var.ansible_vars_file] : []
+    extra_args_file = var.ansible_vars_file != null ? ["-e", var.ansible_vars_file, "-vvvv"] : ["-vv"]
     extra_args_common = [
         "-e", "@images/aap/extra-vars.yml",
         "-e", "ansible_python_interpreter=/usr/bin/python3",
@@ -179,7 +179,7 @@ build {
         user = "rhel"
         inventory_file_template = "controller ansible_host={{ .Host }} ansible_user={{ .User }} ansible_port={{ .Port }} ansible_ssh_pass=${var.ssh_password}\n"
         use_proxy = false
-        extra_arguments = local.extra_args
+        extra_arguments = concat(local.extra_args, ["-e", "ansible_ssh_pass=${var.ssh_password}", "-e", "rhel_user_password=${var.ssh_password}"])
     }
 
     // Extract version information from the VM and save to build environment
@@ -221,7 +221,7 @@ build {
             "if [ -d /tmp/ansible-automation-platform-containerized-setup ]; then",
             "  cd /tmp/ansible-automation-platform-containerized-setup",
             "  echo 'Found installer directory, starting installation...'",
-            "  ANSIBLE_COLLECTIONS_PATH=/tmp/ansible-automation-platform-containerized-setup/collections ansible-playbook -v -i inventory.custom -e ansible_become_pass=${var.ssh_password} ansible.containerized_installer.install",
+            "  ANSIBLE_COLLECTIONS_PATH=/tmp/ansible-automation-platform-containerized-setup/collections ansible-playbook -v -i inventory.custom ansible.containerized_installer.install",
             "  echo 'AAP installation completed with exit code: $?'",
             "else",
             "  echo 'Error: Directory /tmp/ansible-automation-platform-containerized-setup does not exist.'",
@@ -238,7 +238,7 @@ build {
         user = "rhel"
         inventory_file_template = "controller ansible_host={{ .Host }} ansible_user={{ .User }} ansible_port={{ .Port }} ansible_ssh_pass=${var.ssh_password}\n"
         use_proxy = false
-        extra_arguments = local.extra_args
+        extra_arguments = concat(local.extra_args, ["-e", "ansible_ssh_pass=${var.ssh_password}"])
     }
 
     // Image cleanup
