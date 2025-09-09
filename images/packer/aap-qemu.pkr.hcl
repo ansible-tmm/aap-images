@@ -177,7 +177,7 @@ build {
         command = "ansible-playbook"
         playbook_file = "${path.root}/../aap/playbooks/pre-install.yml"
         user = "rhel"
-        inventory_file_template = "controller ansible_host={{ .Host }} ansible_user={{ .User }} ansible_port={{ .Port }}\n"
+        inventory_file_template = "controller ansible_host={{ .Host }} ansible_user={{ .User }} ansible_port={{ .Port }} ansible_ssh_pass=${var.ssh_password}\n"
         use_proxy = false
         extra_arguments = local.extra_args
     }
@@ -236,7 +236,7 @@ build {
         command = "ansible-playbook"
         playbook_file = "${path.root}/../aap/playbooks/post-install.yml"
         user = "rhel"
-        inventory_file_template = "controller ansible_host={{ .Host }} ansible_user={{ .User }} ansible_port={{ .Port }}\n"
+        inventory_file_template = "controller ansible_host={{ .Host }} ansible_user={{ .User }} ansible_port={{ .Port }} ansible_ssh_pass=${var.ssh_password}\n"
         use_proxy = false
         extra_arguments = local.extra_args
     }
