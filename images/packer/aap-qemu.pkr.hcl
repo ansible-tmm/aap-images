@@ -107,8 +107,8 @@ source "qemu" "rhel9" {
     disk_image = true
     use_default_display = true
     
-    // VM configuration - increased for stability
-    memory = 12288  // Increased from 8GB to 12GB
+    // VM configuration - increased for AAP requirements
+    memory = 16384  // Increased to 16GB for AAP requirements
     cpus = 4
     disk_size = "30G"
     
