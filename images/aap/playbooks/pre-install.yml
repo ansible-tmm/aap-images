@@ -32,17 +32,6 @@
       register: hostname_check
       failed_when: "'127.0.0.1' not in hostname_check.stdout"
 
-    - name: Verify required packages are installed
-      ansible.builtin.package:
-        name:
-          - ansible-core
-          - wget
-          - git
-          - rsync
-          - podman
-        state: present
-      become: true
-
     - name: Download Ansible Automation Platform installer
       ansible.builtin.get_url:
         url: "{{ installer_url }}"
