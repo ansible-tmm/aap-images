@@ -44,6 +44,7 @@
 [all:vars]
 
 # Common variables needed for installation
+ansible_become_pass={{ rhel_user_password }}
 postgresql_admin_username=postgres
 postgresql_admin_password={{ installer_admin_pw }}
 registry_username={{ installer_registry_username }}
