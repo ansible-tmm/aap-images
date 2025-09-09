@@ -208,14 +208,14 @@ build {
     // Platform install
     provisioner "shell" {
         environment_vars = [
-            "LC_ALL=C",
-            "LANG=C",
-            "LANGUAGE=C"
+            "LC_ALL=C.utf8",
+            "LANG=C.utf8",
+            "LANGUAGE=en"
         ]
         inline = [
-            "export LC_ALL=C",
-            "export LANG=C",
-            "export LANGUAGE=C",
+            "export LC_ALL=C.utf8",
+            "export LANG=C.utf8",
+            "export LANGUAGE=en",
             "if [ -d /tmp/ansible-automation-platform-containerized-setup ]; then",
             "  cd /tmp/ansible-automation-platform-containerized-setup",
             "  ANSIBLE_COLLECTIONS_PATH=/tmp/ansible-automation-platform-containerized-setup/collections ansible-playbook -v -i inventory.custom ansible.containerized_installer.install",
