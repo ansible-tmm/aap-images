@@ -212,6 +212,8 @@ build {
             "LANG=C.utf8",
             "LANGUAGE=en"
         ]
+        expect_disconnect = true
+        valid_exit_codes = [0, 2300218]
         timeout = "60m"
         inline = [
             "echo 'Starting AAP installation...'",
@@ -221,7 +223,7 @@ build {
             "if [ -d /tmp/ansible-automation-platform-containerized-setup ]; then",
             "  cd /tmp/ansible-automation-platform-containerized-setup",
             "  echo 'Found installer directory, starting installation...'",
-            "  ANSIBLE_COLLECTIONS_PATH=/tmp/ansible-automation-platform-containerized-setup/collections ansible-playbook -v -i inventory.custom ansible.containerized_installer.install",
+            "  ANSIBLE_COLLECTIONS_PATH=/tmp/ansible-automation-platform-containerized-setup/collections ansible-playbook -vvv -i inventory.custom ansible.containerized_installer.install",
             "  echo 'AAP installation completed with exit code: $?'",
             "else",
             "  echo 'Error: Directory /tmp/ansible-automation-platform-containerized-setup does not exist.'",
