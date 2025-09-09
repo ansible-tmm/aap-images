@@ -212,6 +212,7 @@ build {
             "LANG=C.utf8",
             "LANGUAGE=en"
         ]
+        expect_disconnect = true
         inline = [
             "export LC_ALL=C.utf8",
             "export LANG=C.utf8",
