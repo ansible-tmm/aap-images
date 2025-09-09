@@ -123,7 +123,7 @@ source "qemu" "rhel9" {
     ssh_host_port_min = 2222
     ssh_host_port_max = 4444
     ssh_keep_alive_interval = "5s"
-    ssh_read_write_timeout = "5s"
+    ssh_read_write_timeout = "10m"
     
     // Output configuration
     vm_name = "${local.output_filename}.qcow2"
