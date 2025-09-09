@@ -213,18 +213,32 @@ build {
             "LANGUAGE=en"
         ]
         expect_disconnect = true
+        timeout = "60m"
         inline = [
+            "echo 'Starting AAP installation...'",
             "export LC_ALL=C.utf8",
             "export LANG=C.utf8",
             "export LANGUAGE=en",
             "if [ -d /tmp/ansible-automation-platform-containerized-setup ]; then",
             "  cd /tmp/ansible-automation-platform-containerized-setup",
+            "  echo 'Found installer directory, starting installation...'",
             "  ANSIBLE_COLLECTIONS_PATH=/tmp/ansible-automation-platform-containerized-setup/collections ansible-playbook -v -i inventory.custom ansible.containerized_installer.install",
+            "  echo 'AAP installation completed with exit code: $?'",
             "else",
-            "  echo 'Directory /tmp/ansible-automation-platform-containerized-setup does not exist.'",
-            "  ls /tmp",
+            "  echo 'Error: Directory /tmp/ansible-automation-platform-containerized-setup does not exist.'",
+            "  ls -la /tmp",
             "  exit 1",
             "fi"
+        ]
+    }
+
+    // Wait for system to stabilize after AAP installation
+    provisioner "shell" {
+        inline = [
+            "echo 'Waiting for system to stabilize after AAP installation...'",
+            "sleep 30",
+            "echo 'Checking if AAP services are responding...'",
+            "timeout 300 bash -c 'until curl -k -s https://localhost >/dev/null 2>&1; do echo \"Waiting for AAP to respond...\"; sleep 10; done' || echo 'AAP not responding yet, continuing...'"
         ]
     }
 
