@@ -5,22 +5,11 @@
     installer_directory: /tmp/ansible-automation-platform-containerized-setup
   tasks:
 
-    - name: Wait for AAP services to start
-      wait_for:
-        port: 443
-        host: localhost
-        delay: 30
-        timeout: 600
-        msg: "AAP Controller services did not start within 10 minutes"
-
     - &tower-pinger-block
       block:
         - name: check Tower status
           shell: "curl --user 'admin:{{ installer_admin_pw }}' -vkL -XGET https://localhost/api/controller/v2/ping/"
           register: check2
-          retries: 10
-          delay: 30
-          until: check2.rc == 0
         - name: Display /api/v2/ping results (stdout)
           debug:
             msg: '{{ check2.stdout }}'
