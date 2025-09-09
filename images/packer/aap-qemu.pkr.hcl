@@ -224,7 +224,7 @@ build {
             "  echo 'Contents of inventory.custom:'",
             "  cat inventory.custom",
             "  echo '--- End of inventory ---'",
-            "  ANSIBLE_COLLECTIONS_PATH=/tmp/ansible-automation-platform-containerized-setup/collections ANSIBLE_STDOUT_CALLBACK=debug ansible-playbook -vvvv -i inventory.custom ansible.containerized_installer.install",
+            "  ANSIBLE_COLLECTIONS_PATH=/tmp/ansible-automation-platform-containerized-setup/collections ansible-playbook -i inventory.custom ansible.containerized_installer.install",
             "  echo 'AAP installation completed with exit code: $?'",
             "else",
             "  echo 'Error: Directory /tmp/ansible-automation-platform-containerized-setup does not exist.'",
