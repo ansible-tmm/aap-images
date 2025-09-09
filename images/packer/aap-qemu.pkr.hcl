@@ -212,7 +212,6 @@ build {
             "LANG=C.utf8",
             "LANGUAGE=en"
         ]
-        expect_disconnect = true
         timeout = "60m"
         inline = [
             "echo 'Starting AAP installation...'",
