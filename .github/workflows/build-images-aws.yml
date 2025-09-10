@@ -81,12 +81,12 @@ jobs:
             -var "aap_include_automation_hub=${AAP_INCLUDE_AUTOMATION_HUB}" \
             -force ${{ env.PACKER_FILE }}
 
-      - name: Get AMI ID and extract version
+      - name: Get AMI ID and rename with version
         id: get-ami
         run: |
-          # Get the AMI ID directly from Packer build
-          AMI_ID=$(jq -r '.builds[0].artifact_id' manifest.json | cut -d: -f2)
-          echo "Found AMI ID: $AMI_ID"
+          # Get the temporary AMI ID
+          TEMP_AMI_ID=$(jq -r '.builds[0].artifact_id' manifest.json | cut -d: -f2)
+          echo "Found temporary AMI ID: $TEMP_AMI_ID"
           
           # Extract version from the file downloaded from Packer build
           if [ -f /tmp/aap_version_*.txt ]; then
@@ -101,10 +101,36 @@ jobs:
             echo "Using version from URL fallback: $AAP_VERSION"
           fi
           
-          # Output variables for export step
-          echo "ami_id=$AMI_ID" >> $GITHUB_OUTPUT
-          echo "aap_version=$AAP_VERSION" >> $GITHUB_OUTPUT
-          echo "Using AMI: $AMI_ID with version $AAP_VERSION"
+          # Create final AMI name with version (convert flavor to lowercase)
+          FLAVOR_LOWER=$(echo "${{ matrix.flavor }}" | tr '[:upper:]' '[:lower:]')
+          FINAL_NAME="aap-$AAP_VERSION-$FLAVOR_LOWER-$(date +%Y%m%d)"
+          echo "Final AMI name: $FINAL_NAME"
+          
+          # Copy AMI with new name
+          echo "Copying AMI $TEMP_AMI_ID to new name $FINAL_NAME"
+          NEW_AMI_ID=$(aws ec2 copy-image \
+            --source-image-id "$TEMP_AMI_ID" \
+            --source-region ${{ secrets.AWS_REGION || 'us-east-1' }} \
+            --name "$FINAL_NAME" \
+            --description "AAP $AAP_VERSION ${{ matrix.flavor }} built on $(date +%Y-%m-%d)" \
+            --region ${{ secrets.AWS_REGION || 'us-east-1' }} \
+            --query 'ImageId' \
+            --output text)
+          
+          echo "New AMI ID: $NEW_AMI_ID"
+          
+          # Wait for the new AMI to be available
+          echo "Waiting for new AMI to be available..."
+          aws ec2 wait image-available --image-ids "$NEW_AMI_ID" --region ${{ secrets.AWS_REGION || 'us-east-1' }}
+          
+          # Delete the temporary AMI
+          echo "Deleting temporary AMI: $TEMP_AMI_ID"
+          aws ec2 deregister-image --image-id "$TEMP_AMI_ID" --region ${{ secrets.AWS_REGION || 'us-east-1' }}
+          
+          # Output the final AMI ID for export
+          echo "ami_id=$NEW_AMI_ID" >> $GITHUB_OUTPUT
+          echo "final_name=$FINAL_NAME" >> $GITHUB_OUTPUT
+          echo "Final AMI ready: $NEW_AMI_ID ($FINAL_NAME)"
 
       - name: Export AMI to S3 as qcow2
         id: export-ami
@@ -115,15 +141,16 @@ jobs:
           AMI_ID="${{ steps.get-ami.outputs.ami_id }}"
           S3_BUCKET="${{ secrets.S3_BUCKET_NAME || 'aap-qcow2-images' }}"
           FLAVOR_LOWER=$(echo "${{ matrix.flavor }}" | tr '[:upper:]' '[:lower:]')
+          S3_PREFIX="aap-images/$FLAVOR_LOWER"
           EXPORT_TASK_NAME="aap-$FLAVOR_LOWER-$(date +%Y%m%d-%H%M%S)"
           
-          echo "Exporting AMI $AMI_ID to S3 bucket: s3://$S3_BUCKET (root)"
+          echo "Exporting AMI $AMI_ID to S3 bucket: s3://$S3_BUCKET/$S3_PREFIX"
           
           # Create VM export task (using raw format as QCOW2 is not supported)
           EXPORT_TASK_ID=$(aws ec2 export-image \
             --image-id "$AMI_ID" \
             --disk-image-format raw \
-            --s3-export-location S3Bucket="$S3_BUCKET",S3Prefix="" \
+            --s3-export-location S3Bucket="$S3_BUCKET",S3Prefix="$S3_PREFIX/" \
             --description "AAP $FLAVOR_LOWER raw export from $AMI_ID (for qcow2 conversion)" \
             --tag-specifications "ResourceType=export-image-task,Tags=[{Key=Name,Value=$EXPORT_TASK_NAME},{Key=Flavor,Value=$FLAVOR_LOWER},{Key=BuildDate,Value=$(date +%Y-%m-%d)}]" \
             --query 'ExportImageTaskId' \
@@ -141,7 +168,7 @@ jobs:
           # Wait for export to complete (timeout after 2 hours)
           TIMEOUT=7200
           ELAPSED=0
-          INTERVAL=30
+          INTERVAL=60
           
           while [ $ELAPSED -lt $TIMEOUT ]; do
             STATUS=$(aws ec2 describe-export-image-tasks \
@@ -157,61 +184,36 @@ jobs:
             echo "Export status: $STATUS, Progress: $PROGRESS%"
             
             if [ "$STATUS" = "completed" ]; then
-              S3_BUCKET="${{ secrets.S3_BUCKET_NAME || 'aap-qcow2-images' }}"
-              
-              # Debug: Show full export task details
-              echo "Debug: Export task details:"
-              aws ec2 describe-export-image-tasks --export-image-task-ids "$EXPORT_TASK_ID"
-              
-              # Get the actual S3 key from AWS (since AWS generates its own filename)
+              S3_BUCKET=$(aws ec2 describe-export-image-tasks \
+                --export-image-task-ids "$EXPORT_TASK_ID" \
+                --query 'ExportImageTasks[0].S3ExportLocation.S3Bucket' \
+                --output text)
               S3_KEY=$(aws ec2 describe-export-image-tasks \
                 --export-image-task-ids "$EXPORT_TASK_ID" \
                 --query 'ExportImageTasks[0].S3ExportLocation.S3Key' \
                 --output text)
               
-              echo "Debug: Retrieved S3_KEY='$S3_KEY'"
-              
-              if [ "$S3_KEY" = "None" ] || [ -z "$S3_KEY" ] || [ "$S3_KEY" = "null" ]; then
-                echo "Error: Unable to retrieve S3_KEY from AWS. Checking S3 bucket for recent files..."
-                # List most recent files in S3 bucket
-                aws s3 ls s3://$S3_BUCKET/ --recursive | tail -5
-                echo "Using fallback: finding most recent .raw file in bucket"
-                S3_KEY=$(aws s3 ls s3://$S3_BUCKET/ --recursive | grep "\.raw$" | tail -1 | awk '{print $4}')
-                echo "Found S3_KEY via fallback: '$S3_KEY'"
-                
-                if [ -z "$S3_KEY" ]; then
-                  echo "Error: No .raw file found in S3 bucket. Export may have failed."
-                  exit 1
-                fi
-              fi
-              
-              echo "AWS generated S3 key: $S3_KEY"
-              
-              echo "Raw image export completed!"
-              echo "Raw image available at: s3://$S3_BUCKET/$S3_KEY"
+              echo "✅ Raw image export completed!"
+              echo "📦 Raw image available at: s3://$S3_BUCKET/$S3_KEY"
               
               # Convert raw to qcow2 using qemu-img in a container
-              echo "Converting raw image to qcow2 format..."
+              echo "🔄 Converting raw image to qcow2 format..."
               RAW_FILE=$(basename "$S3_KEY")
-              
-              # Create a cleaner qcow2 filename with AAP version
-              FLAVOR_LOWER=$(echo "${{ matrix.flavor }}" | tr '[:upper:]' '[:lower:]')
-              AAP_VERSION="${{ steps.get-ami.outputs.aap_version || '2.5-17' }}"
-              QCOW2_FILE="aap-${AAP_VERSION}-${FLAVOR_LOWER}-$(date +%Y%m%d).qcow2"
+              QCOW2_FILE="${RAW_FILE%.raw}.qcow2"
               
               # Download raw image
-              echo "Downloading raw image..."
+              echo "⬇️ Downloading raw image..."
               aws s3 cp "s3://$S3_BUCKET/$S3_KEY" "$RAW_FILE"
               
               # Install podman if not available, fallback to docker
               if ! command -v podman &> /dev/null; then
-                echo "Installing podman..."
+                echo "📦 Installing podman..."
                 sudo apt-get update -q
                 sudo apt-get install -y podman
               fi
               
               # Convert to qcow2 using Podman (with Docker fallback)
-              echo "Converting to qcow2..."
+              echo "🔄 Converting to qcow2..."
               if command -v podman &> /dev/null; then
                 podman run --rm -v "$(pwd):/work" -w /work \
                   quay.io/libpod/qemu:latest \
@@ -223,26 +225,22 @@ jobs:
               fi
               
               # Upload qcow2 back to S3
-              echo "Uploading qcow2 image..."
-              aws s3 cp "$QCOW2_FILE" "s3://$S3_BUCKET/$QCOW2_FILE"
-              
-              # Clean up raw file from S3 to save storage costs
-              echo "Removing raw file from S3..."
-              aws s3 rm "s3://$S3_BUCKET/$S3_KEY"
+              echo "⬆️ Uploading qcow2 image..."
+              QCOW2_S3_KEY="${S3_KEY%.raw}.qcow2"
+              aws s3 cp "$QCOW2_FILE" "s3://$S3_BUCKET/$QCOW2_S3_KEY"
               
               # Clean up local files
               rm -f "$RAW_FILE" "$QCOW2_FILE"
               
-              echo "Conversion completed!"
-              echo "qcow2 image available at: s3://$S3_BUCKET/$QCOW2_FILE"
-              echo "Raw file removed from S3 to save storage costs"
-              echo "s3_url=s3://$S3_BUCKET/$QCOW2_FILE" >> $GITHUB_OUTPUT
+              echo "✅ Conversion completed!"
+              echo "📦 qcow2 image available at: s3://$S3_BUCKET/$QCOW2_S3_KEY"
+              echo "s3_url=s3://$S3_BUCKET/$QCOW2_S3_KEY" >> $GITHUB_OUTPUT
               break
             elif [ "$STATUS" = "cancelled" ] || [ "$STATUS" = "cancelling" ]; then
-              echo "Export was cancelled"
+              echo "❌ Export was cancelled"
               exit 1
             elif [ "$STATUS" = "failed" ]; then
-              echo "Export failed"
+              echo "❌ Export failed"
               aws ec2 describe-export-image-tasks --export-image-task-ids "$EXPORT_TASK_ID"
               exit 1
             fi
@@ -252,7 +250,7 @@ jobs:
           done
           
           if [ $ELAPSED -ge $TIMEOUT ]; then
-            echo "Export timed out after 2 hours"
+            echo "❌ Export timed out after 2 hours"
             exit 1
           fi
 
@@ -262,7 +260,7 @@ jobs:
           AMI_ID="${{ steps.get-ami.outputs.ami_id }}"
           
           if [ -n "$AMI_ID" ] && [ "$AMI_ID" != "null" ]; then
-            echo "Cleaning up AWS resources for AMI: $AMI_ID"
+            echo "🧹 Cleaning up AWS resources for AMI: $AMI_ID"
             
             # Get snapshot IDs associated with the AMI
             SNAPSHOT_IDS=$(aws ec2 describe-images \
@@ -272,7 +270,7 @@ jobs:
               --region ${{ secrets.AWS_REGION || 'us-east-1' }} || echo "")
             
             # Deregister the AMI
-            echo "Deregistering AMI: $AMI_ID"
+            echo "🗑️ Deregistering AMI: $AMI_ID"
             aws ec2 deregister-image \
               --image-id "$AMI_ID" \
               --region ${{ secrets.AWS_REGION || 'us-east-1' }} || echo "Failed to deregister AMI"
@@ -281,7 +279,7 @@ jobs:
             if [ -n "$SNAPSHOT_IDS" ] && [ "$SNAPSHOT_IDS" != "None" ]; then
               for SNAPSHOT_ID in $SNAPSHOT_IDS; do
                 if [ "$SNAPSHOT_ID" != "None" ]; then
-                  echo "Deleting snapshot: $SNAPSHOT_ID"
+                  echo "🗑️ Deleting snapshot: $SNAPSHOT_ID"
                   aws ec2 delete-snapshot \
                     --snapshot-id "$SNAPSHOT_ID" \
                     --region ${{ secrets.AWS_REGION || 'us-east-1' }} || echo "Failed to delete snapshot $SNAPSHOT_ID"
@@ -289,15 +287,15 @@ jobs:
               done
             fi
             
-            echo "AWS cleanup completed"
+            echo "✅ AWS cleanup completed"
           else
-            echo "No AMI to cleanup"
+            echo "ℹ️ No AMI to cleanup"
           fi
 
       - name: Generate build summary
         if: success()
         run: |
-          echo "## AAP Image Build Complete - Flavor: ${{ matrix.flavor }}" >> $GITHUB_STEP_SUMMARY
+          echo "## 🎉 AAP Image Build Complete - Flavor: ${{ matrix.flavor }}" >> $GITHUB_STEP_SUMMARY
           echo "**AMI Name:** ${{ steps.get-ami.outputs.final_name }}" >> $GITHUB_STEP_SUMMARY
           echo "**S3 Location:** ${{ steps.wait-export.outputs.s3_url }}" >> $GITHUB_STEP_SUMMARY
           echo "**Build Date:** $(date)" >> $GITHUB_STEP_SUMMARY
