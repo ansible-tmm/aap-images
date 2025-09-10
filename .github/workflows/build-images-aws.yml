@@ -19,7 +19,7 @@ jobs:
 
     strategy:
       matrix:
-        flavor: [C, CE, CH, CEH]
+        flavor: [CEH]
 
     steps:
       - name: Checkout repository
