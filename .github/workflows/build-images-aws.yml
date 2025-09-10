@@ -19,7 +19,7 @@ jobs:
 
     strategy:
       matrix:
-        flavor: [C, CE, CH, CEH]
+        flavor: [CEH]
 
     steps:
       - name: Checkout repository
@@ -81,12 +81,12 @@ jobs:
             -var "aap_include_automation_hub=${AAP_INCLUDE_AUTOMATION_HUB}" \
             -force ${{ env.PACKER_FILE }}
 
-      - name: Get AMI ID and rename with version
+      - name: Get AMI ID and extract version
         id: get-ami
         run: |
-          # Get the temporary AMI ID
-          TEMP_AMI_ID=$(jq -r '.builds[0].artifact_id' manifest.json | cut -d: -f2)
-          echo "Found temporary AMI ID: $TEMP_AMI_ID"
+          # Get the AMI ID directly from Packer build
+          AMI_ID=$(jq -r '.builds[0].artifact_id' manifest.json | cut -d: -f2)
+          echo "Found AMI ID: $AMI_ID"
           
           # Extract version from the file downloaded from Packer build
           if [ -f /tmp/aap_version_*.txt ]; then
@@ -101,37 +101,10 @@ jobs:
             echo "Using version from URL fallback: $AAP_VERSION"
           fi
           
-          # Create final AMI name with version (convert flavor to lowercase)
-          FLAVOR_LOWER=$(echo "${{ matrix.flavor }}" | tr '[:upper:]' '[:lower:]')
-          FINAL_NAME="aap-$AAP_VERSION-$FLAVOR_LOWER-$(date +%Y%m%d)"
-          echo "Final AMI name: $FINAL_NAME"
-          
-          # Copy AMI with new name
-          echo "Copying AMI $TEMP_AMI_ID to new name $FINAL_NAME"
-          NEW_AMI_ID=$(aws ec2 copy-image \
-            --source-image-id "$TEMP_AMI_ID" \
-            --source-region ${{ secrets.AWS_REGION || 'us-east-1' }} \
-            --name "$FINAL_NAME" \
-            --description "AAP $AAP_VERSION ${{ matrix.flavor }} built on $(date +%Y-%m-%d)" \
-            --region ${{ secrets.AWS_REGION || 'us-east-1' }} \
-            --query 'ImageId' \
-            --output text)
-          
-          echo "New AMI ID: $NEW_AMI_ID"
-          
-          # Wait for the new AMI to be available
-          echo "Waiting for new AMI to be available..."
-          aws ec2 wait image-available --image-ids "$NEW_AMI_ID" --region ${{ secrets.AWS_REGION || 'us-east-1' }}
-          
-          # Delete the temporary AMI
-          echo "Deleting temporary AMI: $TEMP_AMI_ID"
-          aws ec2 deregister-image --image-id "$TEMP_AMI_ID" --region ${{ secrets.AWS_REGION || 'us-east-1' }}
-          
-          # Output the final AMI ID for export
-          echo "ami_id=$NEW_AMI_ID" >> $GITHUB_OUTPUT
-          echo "final_name=$FINAL_NAME" >> $GITHUB_OUTPUT
+          # Output variables for export step
+          echo "ami_id=$AMI_ID" >> $GITHUB_OUTPUT
           echo "aap_version=$AAP_VERSION" >> $GITHUB_OUTPUT
-          echo "Final AMI ready: $NEW_AMI_ID ($FINAL_NAME)"
+          echo "Using AMI: $AMI_ID with version $AAP_VERSION"
 
       - name: Export AMI to S3 as qcow2
         id: export-ami
@@ -168,7 +141,7 @@ jobs:
           # Wait for export to complete (timeout after 2 hours)
           TIMEOUT=7200
           ELAPSED=0
-          INTERVAL=60
+          INTERVAL=30
           
           while [ $ELAPSED -lt $TIMEOUT ]; do
             STATUS=$(aws ec2 describe-export-image-tasks \
