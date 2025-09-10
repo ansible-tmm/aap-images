@@ -7,6 +7,16 @@
 
   tasks:
 
+    - name: Install required packages for AAP installation
+      ansible.builtin.dnf:
+        name:
+          - git
+          - podman
+          - wget
+          - ansible-core
+        state: present
+      become: true
+
     - name: Set the system hostname for the AAP installer
       become: true
       ansible.builtin.command: hostnamectl set-hostname {{ installer_fqdn_hostname }}

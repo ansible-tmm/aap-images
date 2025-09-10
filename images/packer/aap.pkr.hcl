@@ -19,7 +19,7 @@ variable "aws_region" {
 
 variable "instance_type" {
     type    = string
-    default = "m5.4xlarge"
+    default = "m5.8xlarge"
 }
 
 variable "aap_include_controller" {
@@ -142,7 +142,7 @@ build {
         user = "ec2-user"
         inventory_file_template = "controller ansible_host={{ .Host }} ansible_user={{ .User }} ansible_port={{ .Port }}\n"
         use_proxy = false
-        extra_arguments = local.extra_args
+        extra_arguments = concat(local.extra_args, ["-e", "rhel_user_password=dummy_password_not_needed"])
     }
 
     // Extract version information from the VM and save to build environment
@@ -189,7 +189,7 @@ build {
         user = "ec2-user"
         inventory_file_template = "controller ansible_host={{ .Host }} ansible_user={{ .User }} ansible_port={{ .Port }}\n"
         use_proxy = false
-        extra_arguments = local.extra_args
+        extra_arguments = concat(local.extra_args, ["-e", "rhel_user_password=dummy_password_not_needed"])
     }
 
 
