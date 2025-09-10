@@ -90,6 +90,10 @@ source "amazon-ebs" "automation-controller" {
     }
     instance_type = var.instance_type
     ssh_username  = "ec2-user"
+    ssh_timeout = "20m"
+    ssh_handshake_attempts = 200
+    ssh_keep_alive_interval = "5s"
+    ssh_read_write_timeout = "10m"
     ami_name      = "aap-temp-${local.image_label}-${formatdate("YYYYMMDD", timestamp())}"
     
     launch_block_device_mappings {
