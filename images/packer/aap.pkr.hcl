@@ -139,6 +139,17 @@ build {
         ]
     }
 
+    // Wait and verify SSH connectivity
+    provisioner "shell" {
+        inline = [
+            "echo 'Waiting for SSH to stabilize...'",
+            "sleep 10",
+            "echo 'Testing SSH connectivity...'",
+            "whoami",
+            "echo 'SSH test completed successfully'"
+        ]
+    }
+
     // Pre install tasks
     provisioner "ansible" {
         command = "ansible-playbook"
