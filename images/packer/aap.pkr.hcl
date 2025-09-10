@@ -142,7 +142,7 @@ build {
         user = "ec2-user"
         inventory_file_template = "controller ansible_host={{ .Host }} ansible_user={{ .User }} ansible_port={{ .Port }}\n"
         use_proxy = false
-        extra_arguments = concat(local.extra_args, ["-e", "rhel_user_password=dummy_password_not_needed"])
+        extra_arguments = concat(local.extra_args, ["-e", "rhel_user_password=dummy_password_not_needed", "-e", "ansible_become_pass="])
     }
 
     // Extract version information from the VM and save to build environment
