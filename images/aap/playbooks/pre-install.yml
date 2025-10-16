@@ -57,7 +57,7 @@
         cmd: "tar -xf {{ installer_directory }}.tar.gz -C /tmp/"
 
     - name: List extracted contents for debugging
-      ansible.builtin.command:
+      ansible.builtin.shell:
         cmd: "tar -tzf {{ installer_directory }}.tar.gz | head -1"
       register: tar_contents
 
