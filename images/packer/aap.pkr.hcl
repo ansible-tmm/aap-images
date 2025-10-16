@@ -81,7 +81,7 @@ source "amazon-ebs" "automation-controller" {
     region          = var.aws_region
     source_ami_filter {
         filters = {
-            name                = "RHEL-9.*_HVM-*-x86_64-*-Hourly2-GP2"
+            name                = "RHEL-9.4*_HVM-*-x86_64-*-Hourly2-GP2"
             root-device-type    = "ebs"
             virtualization-type = "hvm"
         }
