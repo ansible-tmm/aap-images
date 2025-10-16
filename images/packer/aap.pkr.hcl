@@ -146,7 +146,7 @@ build {
         user = "ec2-user"
         inventory_file_template = "controller ansible_host={{ .Host }} ansible_user={{ .User }} ansible_port={{ .Port }}\n"
         use_proxy = false
-        extra_arguments = concat(local.extra_args, ["-vvv"])
+        extra_arguments = local.extra_args
     }
 
     // Extract version information from the VM and save to build environment
@@ -177,7 +177,7 @@ build {
         inline = [
             "if [ -d /tmp/ansible-automation-platform-containerized-setup ]; then",
             "  cd /tmp/ansible-automation-platform-containerized-setup",
-            "  ANSIBLE_COLLECTIONS_PATH=/tmp/ansible-automation-platform-containerized-setup/collections ansible-playbook -v -i inventory.custom ansible.containerized_installer.install",
+            "  ANSIBLE_COLLECTIONS_PATH=/tmp/ansible-automation-platform-containerized-setup/collections ansible-playbook -i inventory.custom ansible.containerized_installer.install",
             "else",
             "  echo 'Directory /tmp/ansible-automation-platform-containerized-setup does not exist.'",
             "  ls /tmp",
@@ -193,7 +193,7 @@ build {
         user = "ec2-user"
         inventory_file_template = "controller ansible_host={{ .Host }} ansible_user={{ .User }} ansible_port={{ .Port }}\n"
         use_proxy = false
-        extra_arguments = concat(local.extra_args, ["-vvv"])
+        extra_arguments = local.extra_args
     }
 
 
