@@ -56,10 +56,19 @@
       ansible.builtin.command:
         cmd: "tar -xf {{ installer_directory }}.tar.gz -C /tmp/"
 
+    - name: List extracted contents for debugging
+      ansible.builtin.command:
+        cmd: "tar -tzf {{ installer_directory }}.tar.gz | head -1"
+      register: tar_contents
+
+    - name: Debug tar contents
+      ansible.builtin.debug:
+        msg: "First file in archive: {{ tar_contents.stdout }}"
+
     - name: Find the top-level extracted directory matching the expected pattern
       ansible.builtin.find:
         paths: "/tmp/"
-        patterns: "ansible-automation-platform-containerized-setup-*"
+        patterns: "ansible-automation-platform-*setup*"
         file_type: directory
         recurse: false
       register: extracted_dir
@@ -68,9 +77,14 @@
       ansible.builtin.debug:
         var: extracted_dir.files
 
+    - name: Fail if no installer directory found
+      ansible.builtin.fail:
+        msg: "No installer directory matching 'ansible-automation-platform-*setup*' found in /tmp/. Archive may have a different structure."
+      when: extracted_dir.matched == 0
+
     - name: Extract the version number and filename from installer archive
       ansible.builtin.set_fact:
-        extracted_version: "{{ extracted_dir.files[0].path | regex_search('ansible-automation-platform-containerized-setup-(.*)$', '\\1') }}"
+        extracted_version: "{{ extracted_dir.files[0].path | regex_search('ansible-automation-platform.*setup-(.*)$', '\\1') | first }}"
         installer_filename: "{{ extracted_dir.files[0].path | basename }}"
       when: extracted_dir.matched > 0
 
@@ -83,6 +97,7 @@
         cmd: "mv {{ extracted_dir.files[0].path }} {{ installer_directory }}"
       args:
         removes: "{{ extracted_dir.files[0].path }}"
+      when: extracted_dir.matched > 0
 
     - name: Save installer details to version.txt
       ansible.builtin.copy:
