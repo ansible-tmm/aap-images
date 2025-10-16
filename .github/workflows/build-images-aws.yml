@@ -2,11 +2,20 @@ name: Build All AAP Image Flavors (AWS)
 
 on:
   workflow_dispatch:
+    inputs:
+      aap_version:
+        description: 'AAP Version to build'
+        required: true
+        type: choice
+        options:
+          - '2.5'
+          - '2.6'
+        default: '2.5'
 
 env:
   PACKER_VERSION: "latest"
   PACKER_FILE: ./images/packer/aap.pkr.hcl
-  INSTALLER_URL: ${{ secrets.INSTALLER_URL }}
+  INSTALLER_URL: ${{ github.event.inputs.aap_version == '2.6' && secrets.INSTALLER_URL_26 || secrets.INSTALLER_URL_25 }}
   INSTALLER_REGISTRY_USERNAME: ${{ secrets.INSTALLER_REGISTRY_USERNAME }}
   INSTALLER_REGISTRY_PASSWORD: ${{ secrets.INSTALLER_REGISTRY_PASSWORD }}
   INSTALLER_ADMIN_PW: ${{ secrets.INSTALLER_ADMIN_PW }}
@@ -175,24 +184,42 @@ jobs:
               --export-image-task-ids "$EXPORT_TASK_ID" \
               --query 'ExportImageTasks[0].Status' \
               --output text)
-            
+
             PROGRESS=$(aws ec2 describe-export-image-tasks \
               --export-image-task-ids "$EXPORT_TASK_ID" \
               --query 'ExportImageTasks[0].Progress' \
               --output text)
-            
+
+            STATUS_MESSAGE=$(aws ec2 describe-export-image-tasks \
+              --export-image-task-ids "$EXPORT_TASK_ID" \
+              --query 'ExportImageTasks[0].StatusMessage' \
+              --output text)
+
             echo "Export status: $STATUS, Progress: $PROGRESS%"
+            if [ -n "$STATUS_MESSAGE" ] && [ "$STATUS_MESSAGE" != "None" ]; then
+              echo "Status message: $STATUS_MESSAGE"
+            fi
             
             if [ "$STATUS" = "completed" ]; then
               S3_BUCKET=$(aws ec2 describe-export-image-tasks \
                 --export-image-task-ids "$EXPORT_TASK_ID" \
                 --query 'ExportImageTasks[0].S3ExportLocation.S3Bucket' \
                 --output text)
+              S3_PREFIX=$(aws ec2 describe-export-image-tasks \
+                --export-image-task-ids "$EXPORT_TASK_ID" \
+                --query 'ExportImageTasks[0].S3ExportLocation.S3Prefix' \
+                --output text)
               S3_KEY=$(aws ec2 describe-export-image-tasks \
                 --export-image-task-ids "$EXPORT_TASK_ID" \
                 --query 'ExportImageTasks[0].S3ExportLocation.S3Key' \
                 --output text)
-              
+
+              # Fallback: If S3_KEY is None or empty, construct it from S3_PREFIX and EXPORT_TASK_ID
+              if [ -z "$S3_KEY" ] || [ "$S3_KEY" = "None" ]; then
+                echo "S3Key not returned by API, constructing from prefix and task ID..."
+                S3_KEY="${S3_PREFIX}${EXPORT_TASK_ID}.raw"
+              fi
+
               echo "✅ Raw image export completed!"
               echo "📦 Raw image available at: s3://$S3_BUCKET/$S3_KEY"
               
@@ -254,11 +281,40 @@ jobs:
             exit 1
           fi
 
-      - name: Cleanup AWS resources  
+      - name: Rename qcow2 file with version
+        id: rename-qcow2
+        if: success()
+        run: |
+          # Get the original S3 location and AMI name with version
+          ORIGINAL_S3_URL="${{ steps.wait-export.outputs.s3_url }}"
+          AMI_NAME="${{ steps.get-ami.outputs.final_name }}"
+          S3_BUCKET="${{ secrets.S3_BUCKET_NAME || 'aap-qcow2-images' }}"
+          FLAVOR_LOWER=$(echo "${{ matrix.flavor }}" | tr '[:upper:]' '[:lower:]')
+
+          # Extract the original S3 key from the URL
+          ORIGINAL_S3_KEY=$(echo "$ORIGINAL_S3_URL" | sed "s|s3://$S3_BUCKET/||")
+
+          # Create new S3 key with versioned name
+          NEW_S3_KEY="aap-images/$FLAVOR_LOWER/${AMI_NAME}.qcow2"
+
+          echo "Renaming qcow2 file in S3..."
+          echo "  From: $ORIGINAL_S3_KEY"
+          echo "  To: $NEW_S3_KEY"
+
+          # Copy to new name
+          aws s3 cp "s3://$S3_BUCKET/$ORIGINAL_S3_KEY" "s3://$S3_BUCKET/$NEW_S3_KEY"
+
+          # Delete the old file
+          aws s3 rm "s3://$S3_BUCKET/$ORIGINAL_S3_KEY"
+
+          echo "Renamed to: s3://$S3_BUCKET/$NEW_S3_KEY"
+          echo "versioned_s3_url=s3://$S3_BUCKET/$NEW_S3_KEY" >> $GITHUB_OUTPUT
+
+      - name: Cleanup AWS resources
         if: always()
         run: |
           AMI_ID="${{ steps.get-ami.outputs.ami_id }}"
-          
+
           if [ -n "$AMI_ID" ] && [ "$AMI_ID" != "null" ]; then
             echo "🧹 Cleaning up AWS resources for AMI: $AMI_ID"
             
@@ -297,7 +353,7 @@ jobs:
         run: |
           echo "## 🎉 AAP Image Build Complete - Flavor: ${{ matrix.flavor }}" >> $GITHUB_STEP_SUMMARY
           echo "**AMI Name:** ${{ steps.get-ami.outputs.final_name }}" >> $GITHUB_STEP_SUMMARY
-          echo "**S3 Location:** ${{ steps.wait-export.outputs.s3_url }}" >> $GITHUB_STEP_SUMMARY
+          echo "**S3 Location:** ${{ steps.rename-qcow2.outputs.versioned_s3_url }}" >> $GITHUB_STEP_SUMMARY
           echo "**Build Date:** $(date)" >> $GITHUB_STEP_SUMMARY
           echo "**Components:**" >> $GITHUB_STEP_SUMMARY
           echo "- Controller: ${AAP_INCLUDE_CONTROLLER}" >> $GITHUB_STEP_SUMMARY
