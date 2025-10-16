@@ -36,12 +36,21 @@ jobs:
       - name: Set INSTALLER_URL based on AAP version
         run: |
           if [ "${{ github.event.inputs.aap_version }}" == "2.6" ]; then
-            echo "INSTALLER_URL=${{ secrets.INSTALLER_URL_26 }}" >> $GITHUB_ENV
+            INSTALLER_URL="${{ secrets.INSTALLER_URL_26 }}"
             echo "Using AAP 2.6 installer URL"
           else
-            echo "INSTALLER_URL=${{ secrets.INSTALLER_URL_25 }}" >> $GITHUB_ENV
+            INSTALLER_URL="${{ secrets.INSTALLER_URL_25 }}"
             echo "Using AAP 2.5 installer URL"
           fi
+
+          if [ -z "$INSTALLER_URL" ]; then
+            echo "ERROR: INSTALLER_URL secret is empty or not set!"
+            echo "Please configure INSTALLER_URL_25 or INSTALLER_URL_26 in GitHub secrets"
+            exit 1
+          fi
+
+          echo "INSTALLER_URL length: ${#INSTALLER_URL} characters"
+          echo "INSTALLER_URL=$INSTALLER_URL" >> $GITHUB_ENV
 
       - name: Debug workflow inputs and environment
         run: |

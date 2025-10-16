@@ -64,7 +64,7 @@ locals {
     image_label    = join("", local.enabled_labels)
 
     // Create ansible vars argument list depending on the presence of ansible_vars_file
-    extra_args_file = var.ansible_vars_file != null ? ["-e", var.ansible_vars_file, "-vvvv"] : ["-vv"]
+    extra_args_file = var.ansible_vars_file != null ? ["-e", var.ansible_vars_file] : []
     extra_args_common = [
         "-e", "@images/aap/extra-vars.yml",
         "-e", "ansible_python_interpreter=/usr/bin/python3",
