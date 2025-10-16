@@ -15,7 +15,6 @@ on:
 env:
   PACKER_VERSION: "latest"
   PACKER_FILE: ./images/packer/aap.pkr.hcl
-  INSTALLER_URL: ${{ github.event.inputs.aap_version == '2.6' && secrets.INSTALLER_URL_26 || secrets.INSTALLER_URL_25 || secrets.INSTALLER_URL }}
   INSTALLER_REGISTRY_USERNAME: ${{ secrets.INSTALLER_REGISTRY_USERNAME }}
   INSTALLER_REGISTRY_PASSWORD: ${{ secrets.INSTALLER_REGISTRY_PASSWORD }}
   INSTALLER_ADMIN_PW: ${{ secrets.INSTALLER_ADMIN_PW }}
@@ -34,10 +33,25 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Set INSTALLER_URL based on AAP version
+        run: |
+          if [ "${{ github.event.inputs.aap_version }}" == "2.6" ]; then
+            echo "INSTALLER_URL=${{ secrets.INSTALLER_URL_26 }}" >> $GITHUB_ENV
+            echo "Using AAP 2.6 installer URL"
+          else
+            echo "INSTALLER_URL=${{ secrets.INSTALLER_URL_25 }}" >> $GITHUB_ENV
+            echo "Using AAP 2.5 installer URL"
+          fi
+
       - name: Debug workflow inputs and environment
         run: |
           echo "AAP Version Input: ${{ github.event.inputs.aap_version }}"
-          echo "INSTALLER_URL: ${INSTALLER_URL:0:50}..."
+          if [ -z "$INSTALLER_URL" ]; then
+            echo "ERROR: INSTALLER_URL is empty!"
+            exit 1
+          else
+            echo "INSTALLER_URL is set (length: ${#INSTALLER_URL})"
+          fi
           echo "Flavor: ${{ matrix.flavor }}"
 
       - name: Configure AWS credentials
