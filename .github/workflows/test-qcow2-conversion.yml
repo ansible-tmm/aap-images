@@ -169,7 +169,7 @@ jobs:
             aws s3 cp /tmp/$QCOW2_FILE s3://$S3_BUCKET/$QCOW2_S3_KEY --no-progress
 
             echo "Conversion complete"
-            rm -f /tmp/$QCOW2_FILE
+            sudo rm -f /tmp/$QCOW2_FILE
           EOF
 
           # Verify qcow2 file exists in S3
