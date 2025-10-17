@@ -116,9 +116,23 @@ jobs:
             sleep 10
           done
 
-          # Wait a bit more for user-data to complete
-          echo "Waiting for qemu-img installation..."
-          sleep 60
+          # Wait for user-data to complete and tools to be installed
+          echo "Waiting for qemu-img and aws-cli installation..."
+          for i in {1..30}; do
+            if ssh -o StrictHostKeyChecking=no -i /tmp/converter-key ec2-user@$PUBLIC_IP "command -v qemu-img && command -v aws" 2>/dev/null; then
+              echo "Tools are installed"
+              break
+            fi
+            if [ $i -eq 30 ]; then
+              echo "ERROR: Tools did not install in time"
+              aws ec2 terminate-instances --instance-ids $INSTANCE_ID
+              aws ec2 delete-key-pair --key-name $KEY_NAME
+              aws ec2 delete-security-group --group-id $SG_ID
+              exit 1
+            fi
+            echo "Waiting for installation... ($i/30)"
+            sleep 10
+          done
 
           # Run conversion via SSH
           echo "Running qcow2 conversion..."
