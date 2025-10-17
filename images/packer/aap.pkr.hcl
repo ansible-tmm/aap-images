@@ -174,6 +174,8 @@ build {
 
     // Platform install
     provisioner "shell" {
+        expect_disconnect = true
+        pause_after = "30s"
         inline = [
             "if [ -d /tmp/ansible-automation-platform-containerized-setup ]; then",
             "  cd /tmp/ansible-automation-platform-containerized-setup",
