@@ -255,8 +255,14 @@ jobs:
               # Launch temporary EC2 instance for qcow2 conversion
               echo "Launching temporary EC2 instance for qcow2 conversion..."
               RAW_FILE=$(basename "$S3_KEY")
-              QCOW2_FILE="${RAW_FILE%.raw}.qcow2"
-              QCOW2_S3_KEY="${S3_KEY%.raw}.qcow2"
+
+              # Use the AMI name with version for the qcow2 filename
+              AMI_NAME="${{ steps.get-ami.outputs.final_name }}"
+              QCOW2_FILE="${AMI_NAME}.qcow2"
+              FLAVOR_LOWER=$(echo "${{ matrix.flavor }}" | tr '[:upper:]' '[:lower:]')
+              QCOW2_S3_KEY="aap-images/$FLAVOR_LOWER/${QCOW2_FILE}"
+
+              echo "Will create qcow2 with name: $QCOW2_FILE"
 
               # Create a temporary security group for SSH
               TEMP_SG_ID=$(aws ec2 create-security-group \
