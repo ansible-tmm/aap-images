@@ -370,27 +370,27 @@ jobs:
 
               # Run conversion via SSH
               echo "Running qcow2 conversion (this may take 10-15 minutes)..."
-              ssh -o StrictHostKeyChecking=no -i /tmp/converter-key ec2-user@$PUBLIC_IP << EOF
-                set -e
-                export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
-                export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
-                export AWS_DEFAULT_REGION=$AWS_DEFAULT_REGION
+              ssh -o StrictHostKeyChecking=no -i /tmp/converter-key ec2-user@$PUBLIC_IP << 'SSHEOF'
+              set -e
+              export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
+              export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
+              export AWS_DEFAULT_REGION=$AWS_DEFAULT_REGION
 
-                echo "Downloading raw image..."
-                aws s3 cp s3://$S3_BUCKET/$S3_KEY /tmp/$RAW_FILE --no-progress
+              echo "Downloading raw image..."
+              aws s3 cp s3://$S3_BUCKET/$S3_KEY /tmp/$RAW_FILE --no-progress
 
-                echo "Converting to qcow2 with compression..."
-                sudo qemu-img convert -f raw -O qcow2 -c /tmp/$RAW_FILE /tmp/$QCOW2_FILE
+              echo "Converting to qcow2 with compression..."
+              sudo qemu-img convert -f raw -O qcow2 -c /tmp/$RAW_FILE /tmp/$QCOW2_FILE
 
-                echo "Removing raw file..."
-                rm -f /tmp/$RAW_FILE
+              echo "Removing raw file..."
+              rm -f /tmp/$RAW_FILE
 
-                echo "Uploading qcow2..."
-                aws s3 cp /tmp/$QCOW2_FILE s3://$S3_BUCKET/$QCOW2_S3_KEY --no-progress
+              echo "Uploading qcow2..."
+              aws s3 cp /tmp/$QCOW2_FILE s3://$S3_BUCKET/$QCOW2_S3_KEY --no-progress
 
-                echo "Cleanup complete"
-                sudo rm -f /tmp/$QCOW2_FILE
-              EOF
+              echo "Cleanup complete"
+              sudo rm -f /tmp/$QCOW2_FILE
+              SSHEOF
 
               # Cleanup: Terminate instance
               echo "Terminating converter instance..."
