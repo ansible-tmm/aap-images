@@ -299,13 +299,8 @@ jobs:
 
               echo "Using AMI: $CONVERTER_AMI"
 
-              # Create user-data script
-              cat > /tmp/user-data.sh << 'USERDATA'
-              #!/bin/bash
-              set -x
-              exec > /var/log/user-data.log 2>&1
-              yum install -y qemu-img awscli
-              USERDATA
+              # Create user-data script (avoiding heredoc to prevent YAML parsing issues)
+              printf '%s\n' '#!/bin/bash' 'set -x' 'exec > /var/log/user-data.log 2>&1' 'yum install -y qemu-img awscli' > /tmp/user-data.sh
 
               # Launch instance with 100GB root volume
               CONVERTER_INSTANCE=$(aws ec2 run-instances \
