@@ -28,7 +28,7 @@ jobs:
           dd if=/dev/zero of=test.raw bs=1M count=100
 
           # Upload to S3
-          S3_BUCKET="${{ secrets.S3_BUCKET }}"
+          S3_BUCKET="${{ secrets.S3_BUCKET_NAME || 'aap-qcow2-images' }}"
           TEST_RAW_KEY="aap-images/test/test-$(date +%Y%m%d-%H%M%S).raw"
           echo "Uploading test file to s3://$S3_BUCKET/$TEST_RAW_KEY"
           aws s3 cp test.raw "s3://$S3_BUCKET/$TEST_RAW_KEY"
