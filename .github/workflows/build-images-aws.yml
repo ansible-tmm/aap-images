@@ -252,115 +252,27 @@ jobs:
               echo "✅ Raw image export completed!"
               echo "📦 Raw image available at: s3://$S3_BUCKET/$S3_KEY"
               
-              # Launch temporary EC2 instance for qcow2 conversion
-              echo "Launching temporary EC2 instance for qcow2 conversion..."
-              RAW_FILE=$(basename "$S3_KEY")
+              # Rename RAW file with versioned name (skipping qcow2 conversion for now)
+              echo "Renaming raw file with versioned name..."
 
-              # Use the AMI name with version for the qcow2 filename
+              # Use the AMI name with version for the raw filename
               AMI_NAME="${{ steps.get-ami.outputs.final_name }}"
-              QCOW2_FILE="${AMI_NAME}.qcow2"
+              RAW_VERSIONED_FILE="${AMI_NAME}.raw"
               FLAVOR_LOWER=$(echo "${{ matrix.flavor }}" | tr '[:upper:]' '[:lower:]')
-              QCOW2_S3_KEY="aap-images/$FLAVOR_LOWER/${QCOW2_FILE}"
+              RAW_VERSIONED_S3_KEY="aap-images/$FLAVOR_LOWER/${RAW_VERSIONED_FILE}"
 
-              echo "Will create qcow2 with name: $QCOW2_FILE"
+              echo "Renaming: $S3_KEY"
+              echo "      -> $RAW_VERSIONED_S3_KEY"
 
-              # Create a temporary security group for SSH
-              TEMP_SG_ID=$(aws ec2 create-security-group \
-                --group-name "qcow2-converter-$(date +%s)" \
-                --description "Temporary SG for qcow2 conversion" \
-                --query 'GroupId' \
-                --output text)
+              # Copy to new name in S3
+              aws s3 cp "s3://$S3_BUCKET/$S3_KEY" "s3://$S3_BUCKET/$RAW_VERSIONED_S3_KEY" --no-progress
 
-              echo "Created security group: $TEMP_SG_ID"
+              # Delete the old file with auto-generated name
+              aws s3 rm "s3://$S3_BUCKET/$S3_KEY"
 
-              # Get latest Amazon Linux 2023 AMI (has more disk space than Ubuntu)
-              CONVERTER_AMI=$(aws ec2 describe-images \
-                --owners amazon \
-                --filters "Name=name,Values=al2023-ami-2023*-x86_64" "Name=state,Values=available" \
-                --query 'Images | sort_by(@, &CreationDate) | [-1].ImageId' \
-                --output text)
-
-              # Launch instance with 100GB root volume (without IAM profile, use GitHub Actions credentials via SSM)
-              CONVERTER_INSTANCE=$(aws ec2 run-instances \
-                --image-id $CONVERTER_AMI \
-                --instance-type t3.medium \
-                --security-group-ids $TEMP_SG_ID \
-                --block-device-mappings '[{"DeviceName":"/dev/xvda","Ebs":{"VolumeSize":100,"VolumeType":"gp3","DeleteOnTermination":true}}]' \
-                --user-data '#!/bin/bash
-                yum install -y qemu-img
-                ' \
-                --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=qcow2-converter},{Key=Purpose,Value=temporary}]" \
-                --query 'Instances[0].InstanceId' \
-                --output text)
-
-              echo "Launched converter instance: $CONVERTER_INSTANCE"
-
-              # Wait for instance to be running
-              echo "Waiting for instance to be running..."
-              aws ec2 wait instance-running --instance-ids $CONVERTER_INSTANCE
-
-              # Wait for instance to be ready (user data to complete)
-              echo "Waiting 60s for instance initialization..."
-              sleep 60
-
-              # Get instance IP
-              INSTANCE_IP=$(aws ec2 describe-instances \
-                --instance-ids $CONVERTER_INSTANCE \
-                --query 'Reservations[0].Instances[0].PublicIpAddress' \
-                --output text)
-
-              # Use AWS Systems Manager to run conversion (pass credentials)
-              COMMAND_ID=$(aws ssm send-command \
-                --instance-ids $CONVERTER_INSTANCE \
-                --document-name "AWS-RunShellScript" \
-                --parameters commands="[
-                  \"export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID\",
-                  \"export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY\",
-                  \"export AWS_DEFAULT_REGION=$AWS_DEFAULT_REGION\",
-                  \"echo Downloading raw image...\",
-                  \"aws s3 cp s3://$S3_BUCKET/$S3_KEY /tmp/$RAW_FILE --no-progress\",
-                  \"echo Converting to qcow2...\",
-                  \"qemu-img convert -f raw -O qcow2 -c /tmp/$RAW_FILE /tmp/$QCOW2_FILE\",
-                  \"echo Removing raw file...\",
-                  \"rm -f /tmp/$RAW_FILE\",
-                  \"echo Uploading qcow2...\",
-                  \"aws s3 cp /tmp/$QCOW2_FILE s3://$S3_BUCKET/$QCOW2_S3_KEY --no-progress\",
-                  \"echo Cleanup complete\",
-                  \"rm -f /tmp/$QCOW2_FILE\"
-                ]" \
-                --query 'Command.CommandId' \
-                --output text)
-
-              echo "Conversion command sent: $COMMAND_ID"
-
-              # Wait for command to complete
-              echo "Waiting for conversion to complete..."
-              aws ssm wait command-executed \
-                --command-id $COMMAND_ID \
-                --instance-id $CONVERTER_INSTANCE
-
-              # Get command output
-              echo "Command output:"
-              aws ssm get-command-invocation \
-                --command-id $COMMAND_ID \
-                --instance-id $CONVERTER_INSTANCE \
-                --query 'StandardOutputContent' \
-                --output text
-
-              # Cleanup: Terminate instance
-              echo "Terminating converter instance..."
-              aws ec2 terminate-instances --instance-ids $CONVERTER_INSTANCE
-
-              # Wait for termination
-              aws ec2 wait instance-terminated --instance-ids $CONVERTER_INSTANCE
-
-              # Delete security group
-              echo "Deleting security group..."
-              aws ec2 delete-security-group --group-id $TEMP_SG_ID
-              
-              echo "✅ Conversion completed!"
-              echo "📦 qcow2 image available at: s3://$S3_BUCKET/$QCOW2_S3_KEY"
-              echo "s3_url=s3://$S3_BUCKET/$QCOW2_S3_KEY" >> $GITHUB_OUTPUT
+              echo "✅ Raw image renamed!"
+              echo "📦 Raw image available at: s3://$S3_BUCKET/$RAW_VERSIONED_S3_KEY"
+              echo "s3_url=s3://$S3_BUCKET/$RAW_VERSIONED_S3_KEY" >> $GITHUB_OUTPUT
               break
             elif [ "$STATUS" = "cancelled" ] || [ "$STATUS" = "cancelling" ]; then
               echo "❌ Export was cancelled"
