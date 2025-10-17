@@ -44,7 +44,12 @@ jobs:
             --output text)
           echo "Using AMI: $CONVERTER_AMI"
 
-          # Create security group
+          # Create temporary SSH key
+          echo "Creating SSH key..."
+          ssh-keygen -t rsa -b 2048 -f /tmp/converter-key -N ""
+          chmod 600 /tmp/converter-key
+
+          # Create security group allowing SSH
           echo "Creating security group..."
           SG_ID=$(aws ec2 create-security-group \
             --group-name "qcow2-converter-test-$(date +%s)" \
@@ -53,15 +58,28 @@ jobs:
             --output text)
           echo "Security group created: $SG_ID"
 
+          # Add SSH ingress rule
+          aws ec2 authorize-security-group-ingress \
+            --group-id $SG_ID \
+            --protocol tcp \
+            --port 22 \
+            --cidr 0.0.0.0/0
+
+          # Import SSH key
+          KEY_NAME="converter-test-$(date +%s)"
+          aws ec2 import-key-pair \
+            --key-name $KEY_NAME \
+            --public-key-material fileb:///tmp/converter-key.pub
+
           # Launch instance
           echo "Launching converter instance..."
           INSTANCE_ID=$(aws ec2 run-instances \
             --image-id $CONVERTER_AMI \
             --instance-type t3.small \
+            --key-name $KEY_NAME \
             --security-group-ids $SG_ID \
             --block-device-mappings '[{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":20,"VolumeType":"gp3"}}]' \
             --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=qcow2-converter-test},{Key=ManagedBy,Value=github-actions-test}]' \
-            --iam-instance-profile Name=SSMInstanceProfile \
             --user-data '#!/bin/bash
           yum install -y qemu-img aws-cli' \
             --query 'Instances[0].InstanceId' \
@@ -69,89 +87,66 @@ jobs:
 
           echo "Converter instance: $INSTANCE_ID"
 
-          # Wait for instance to be ready for SSM
-          echo "Waiting for instance to be ready..."
-          for i in {1..60}; do
-            STATUS=$(aws ssm describe-instance-information \
-              --filters "Key=InstanceIds,Values=$INSTANCE_ID" \
-              --query 'InstanceInformationList[0].PingStatus' \
-              --output text 2>/dev/null || echo "NotReady")
+          # Wait for instance to be running
+          echo "Waiting for instance to be running..."
+          aws ec2 wait instance-running --instance-ids $INSTANCE_ID
 
-            if [ "$STATUS" = "Online" ]; then
-              echo "Instance is ready for SSM commands"
+          # Get public IP
+          PUBLIC_IP=$(aws ec2 describe-instances \
+            --instance-ids $INSTANCE_ID \
+            --query 'Reservations[0].Instances[0].PublicIpAddress' \
+            --output text)
+          echo "Instance IP: $PUBLIC_IP"
+
+          # Wait for SSH to be ready
+          echo "Waiting for SSH to be ready..."
+          for i in {1..30}; do
+            if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -i /tmp/converter-key ec2-user@$PUBLIC_IP "echo SSH ready" 2>/dev/null; then
+              echo "SSH is ready"
               break
             fi
-
-            if [ $i -eq 60 ]; then
-              echo "ERROR: Instance did not become ready in time"
+            if [ $i -eq 30 ]; then
+              echo "ERROR: SSH did not become ready in time"
               aws ec2 terminate-instances --instance-ids $INSTANCE_ID
+              aws ec2 delete-key-pair --key-name $KEY_NAME
               aws ec2 delete-security-group --group-id $SG_ID
               exit 1
             fi
-
-            echo "Waiting for SSM agent... ($i/60)"
-            sleep 5
+            echo "Waiting for SSH... ($i/30)"
+            sleep 10
           done
 
-          # Run conversion via SSM
+          # Wait a bit more for user-data to complete
+          echo "Waiting for qemu-img installation..."
+          sleep 60
+
+          # Run conversion via SSH
           echo "Running qcow2 conversion..."
           RAW_FILE=$(basename "$TEST_RAW_KEY")
           QCOW2_FILE="test-$(date +%Y%m%d-%H%M%S).qcow2"
           QCOW2_S3_KEY="aap-images/test/$QCOW2_FILE"
 
-          COMMAND_ID=$(aws ssm send-command \
-            --instance-ids $INSTANCE_ID \
-            --document-name "AWS-RunShellScript" \
-            --parameters commands="[
-              \"export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID\",
-              \"export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY\",
-              \"export AWS_DEFAULT_REGION=$AWS_DEFAULT_REGION\",
-              \"echo Downloading raw image...\",
-              \"aws s3 cp s3://$S3_BUCKET/$TEST_RAW_KEY /tmp/$RAW_FILE --no-progress\",
-              \"echo Converting to qcow2 with compression...\",
-              \"qemu-img convert -f raw -O qcow2 -c /tmp/$RAW_FILE /tmp/$QCOW2_FILE\",
-              \"echo Removing raw file...\",
-              \"rm -f /tmp/$RAW_FILE\",
-              \"echo Uploading qcow2...\",
-              \"aws s3 cp /tmp/$QCOW2_FILE s3://$S3_BUCKET/$QCOW2_S3_KEY --no-progress\",
-              \"echo Conversion complete\",
-              \"rm -f /tmp/$QCOW2_FILE\"
-            ]" \
-            --query 'Command.CommandId' \
-            --output text)
+          ssh -o StrictHostKeyChecking=no -i /tmp/converter-key ec2-user@$PUBLIC_IP << EOF
+            set -e
+            export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
+            export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
+            export AWS_DEFAULT_REGION=$AWS_DEFAULT_REGION
 
-          echo "Command ID: $COMMAND_ID"
+            echo "Downloading raw image..."
+            aws s3 cp s3://$S3_BUCKET/$TEST_RAW_KEY /tmp/$RAW_FILE --no-progress
 
-          # Wait for command to complete
-          echo "Waiting for conversion to complete..."
-          for i in {1..120}; do
-            STATUS=$(aws ssm get-command-invocation \
-              --command-id $COMMAND_ID \
-              --instance-id $INSTANCE_ID \
-              --query 'Status' \
-              --output text 2>/dev/null || echo "Pending")
+            echo "Converting to qcow2 with compression..."
+            sudo qemu-img convert -f raw -O qcow2 -c /tmp/$RAW_FILE /tmp/$QCOW2_FILE
 
-            if [ "$STATUS" = "Success" ]; then
-              echo "Conversion completed successfully!"
-              aws ssm get-command-invocation \
-                --command-id $COMMAND_ID \
-                --instance-id $INSTANCE_ID \
-                --query 'StandardOutputContent' \
-                --output text
-              break
-            elif [ "$STATUS" = "Failed" ]; then
-              echo "ERROR: Conversion failed"
-              aws ssm get-command-invocation \
-                --command-id $COMMAND_ID \
-                --instance-id $INSTANCE_ID \
-                --query 'StandardErrorContent' \
-                --output text
-              exit 1
-            fi
+            echo "Removing raw file..."
+            rm -f /tmp/$RAW_FILE
 
-            echo "Status: $STATUS ($i/120)"
-            sleep 3
-          done
+            echo "Uploading qcow2..."
+            aws s3 cp /tmp/$QCOW2_FILE s3://$S3_BUCKET/$QCOW2_S3_KEY --no-progress
+
+            echo "Conversion complete"
+            rm -f /tmp/$QCOW2_FILE
+          EOF
 
           # Verify qcow2 file exists in S3
           echo "Verifying qcow2 file in S3..."
@@ -169,6 +164,10 @@ jobs:
           aws ec2 terminate-instances --instance-ids $INSTANCE_ID
           echo "Waiting for instance termination..."
           aws ec2 wait instance-terminated --instance-ids $INSTANCE_ID
+
+          # Delete SSH key
+          aws ec2 delete-key-pair --key-name $KEY_NAME
+          rm -f /tmp/converter-key /tmp/converter-key.pub
 
           # Delete security group
           aws ec2 delete-security-group --group-id $SG_ID
