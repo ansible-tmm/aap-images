@@ -252,41 +252,28 @@ jobs:
               echo "✅ Raw image export completed!"
               echo "📦 Raw image available at: s3://$S3_BUCKET/$S3_KEY"
               
-              # Convert raw to qcow2 using qemu-img in a container
-              echo "🔄 Converting raw image to qcow2 format..."
+              # Convert raw to qcow2 using streaming to avoid disk space issues
+              echo "Converting raw image to qcow2 format (streaming from/to S3)..."
               RAW_FILE=$(basename "$S3_KEY")
               QCOW2_FILE="${RAW_FILE%.raw}.qcow2"
-              
-              # Download raw image
-              echo "⬇️ Downloading raw image..."
-              aws s3 cp "s3://$S3_BUCKET/$S3_KEY" "$RAW_FILE"
-              
-              # Install podman if not available, fallback to docker
-              if ! command -v podman &> /dev/null; then
-                echo "📦 Installing podman..."
-                sudo apt-get update -q
-                sudo apt-get install -y podman
-              fi
-              
-              # Convert to qcow2 using Podman (with Docker fallback)
-              echo "🔄 Converting to qcow2..."
-              if command -v podman &> /dev/null; then
-                podman run --rm -v "$(pwd):/work" -w /work \
-                  quay.io/libpod/qemu:latest \
-                  qemu-img convert -f raw -O qcow2 "$RAW_FILE" "$QCOW2_FILE"
-              else
-                docker run --rm -v "$(pwd):/work" -w /work \
-                  quay.io/libpod/qemu:latest \
-                  qemu-img convert -f raw -O qcow2 "$RAW_FILE" "$QCOW2_FILE"
-              fi
-              
+
+              # Install qemu-utils for qemu-img
+              echo "Installing qemu-utils..."
+              sudo apt-get update -q
+              sudo apt-get install -y qemu-utils
+
+              # Stream download, convert, and save to local (qemu-img can't stream output)
+              echo "Streaming download and conversion..."
+              aws s3 cp "s3://$S3_BUCKET/$S3_KEY" - --no-progress | \
+                qemu-img convert -f raw -O qcow2 - "$QCOW2_FILE"
+
               # Upload qcow2 back to S3
-              echo "⬆️ Uploading qcow2 image..."
+              echo "Uploading qcow2 image to S3..."
               QCOW2_S3_KEY="${S3_KEY%.raw}.qcow2"
-              aws s3 cp "$QCOW2_FILE" "s3://$S3_BUCKET/$QCOW2_S3_KEY"
-              
-              # Clean up local files
-              rm -f "$RAW_FILE" "$QCOW2_FILE"
+              aws s3 cp "$QCOW2_FILE" "s3://$S3_BUCKET/$QCOW2_S3_KEY" --no-progress
+
+              # Clean up local file
+              rm -f "$QCOW2_FILE"
               
               echo "✅ Conversion completed!"
               echo "📦 qcow2 image available at: s3://$S3_BUCKET/$QCOW2_S3_KEY"
