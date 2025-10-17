@@ -34,6 +34,16 @@ jobs:
           aws s3 cp test.raw "s3://$S3_BUCKET/$TEST_RAW_KEY"
           rm test.raw
 
+          # Find latest RHEL 9 AMI
+          echo "Finding latest RHEL 9 AMI..."
+          CONVERTER_AMI=$(aws ec2 describe-images \
+            --owners 309956199498 \
+            --filters "Name=name,Values=RHEL-9*_HVM-*-x86_64-*-GP*" \
+                      "Name=state,Values=available" \
+            --query 'Images | sort_by(@, &CreationDate) | [-1].ImageId' \
+            --output text)
+          echo "Using AMI: $CONVERTER_AMI"
+
           # Create security group
           echo "Creating security group..."
           SG_ID=$(aws ec2 create-security-group \
@@ -46,7 +56,7 @@ jobs:
           # Launch instance
           echo "Launching converter instance..."
           INSTANCE_ID=$(aws ec2 run-instances \
-            --image-id ami-0c02fb55b15a6f0a0 \
+            --image-id $CONVERTER_AMI \
             --instance-type t3.small \
             --security-group-ids $SG_ID \
             --block-device-mappings '[{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":20,"VolumeType":"gp3"}}]' \
