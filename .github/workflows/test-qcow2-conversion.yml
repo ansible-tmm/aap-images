@@ -71,6 +71,14 @@ jobs:
             --key-name $KEY_NAME \
             --public-key-material fileb:///tmp/converter-key.pub
 
+          # Create user-data script
+          cat > /tmp/user-data.sh << 'USERDATA'
+#!/bin/bash
+set -x
+exec > /var/log/user-data.log 2>&1
+yum install -y qemu-img awscli
+USERDATA
+
           # Launch instance
           echo "Launching converter instance..."
           INSTANCE_ID=$(aws ec2 run-instances \
@@ -80,8 +88,7 @@ jobs:
             --security-group-ids $SG_ID \
             --block-device-mappings '[{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":20,"VolumeType":"gp3"}}]' \
             --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=qcow2-converter-test},{Key=ManagedBy,Value=github-actions-test}]' \
-            --user-data '#!/bin/bash
-          yum install -y qemu-img aws-cli' \
+            --user-data file:///tmp/user-data.sh \
             --query 'Instances[0].InstanceId' \
             --output text)
 
@@ -125,9 +132,12 @@ jobs:
             fi
             if [ $i -eq 30 ]; then
               echo "ERROR: Tools did not install in time"
+              echo "Checking user-data log..."
+              ssh -o StrictHostKeyChecking=no -i /tmp/converter-key ec2-user@$PUBLIC_IP "sudo cat /var/log/user-data.log" || true
               aws ec2 terminate-instances --instance-ids $INSTANCE_ID
               aws ec2 delete-key-pair --key-name $KEY_NAME
-              aws ec2 delete-security-group --group-id $SG_ID
+              sleep 30
+              aws ec2 delete-security-group --group-id $SG_ID || true
               exit 1
             fi
             echo "Waiting for installation... ($i/30)"
@@ -184,7 +194,8 @@ jobs:
           rm -f /tmp/converter-key /tmp/converter-key.pub
 
           # Delete security group
-          aws ec2 delete-security-group --group-id $SG_ID
+          sleep 30
+          aws ec2 delete-security-group --group-id $SG_ID || echo "Security group cleanup failed (may need manual deletion)"
 
           # Delete test files from S3
           aws s3 rm "s3://$S3_BUCKET/$TEST_RAW_KEY"
