@@ -1,0 +1,170 @@
+name: Test qcow2 Conversion
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-conversion:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Create test RAW file and test conversion
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: us-east-1
+        run: |
+          set -e
+
+          # Create a small test RAW file (100MB)
+          echo "Creating small test RAW file..."
+          dd if=/dev/zero of=test.raw bs=1M count=100
+
+          # Upload to S3
+          S3_BUCKET="${{ secrets.S3_BUCKET }}"
+          TEST_RAW_KEY="aap-images/test/test-$(date +%Y%m%d-%H%M%S).raw"
+          echo "Uploading test file to s3://$S3_BUCKET/$TEST_RAW_KEY"
+          aws s3 cp test.raw "s3://$S3_BUCKET/$TEST_RAW_KEY"
+          rm test.raw
+
+          # Create security group
+          echo "Creating security group..."
+          SG_ID=$(aws ec2 create-security-group \
+            --group-name "qcow2-converter-test-$(date +%s)" \
+            --description "Temporary SG for qcow2 conversion test" \
+            --query 'GroupId' \
+            --output text)
+          echo "Security group created: $SG_ID"
+
+          # Launch instance
+          echo "Launching converter instance..."
+          INSTANCE_ID=$(aws ec2 run-instances \
+            --image-id ami-0c02fb55b15a6f0a0 \
+            --instance-type t3.small \
+            --security-group-ids $SG_ID \
+            --block-device-mappings '[{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":20,"VolumeType":"gp3"}}]' \
+            --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=qcow2-converter-test},{Key=ManagedBy,Value=github-actions-test}]' \
+            --iam-instance-profile Name=SSMInstanceProfile \
+            --user-data '#!/bin/bash
+          yum install -y qemu-img aws-cli' \
+            --query 'Instances[0].InstanceId' \
+            --output text)
+
+          echo "Converter instance: $INSTANCE_ID"
+
+          # Wait for instance to be ready for SSM
+          echo "Waiting for instance to be ready..."
+          for i in {1..60}; do
+            STATUS=$(aws ssm describe-instance-information \
+              --filters "Key=InstanceIds,Values=$INSTANCE_ID" \
+              --query 'InstanceInformationList[0].PingStatus' \
+              --output text 2>/dev/null || echo "NotReady")
+
+            if [ "$STATUS" = "Online" ]; then
+              echo "Instance is ready for SSM commands"
+              break
+            fi
+
+            if [ $i -eq 60 ]; then
+              echo "ERROR: Instance did not become ready in time"
+              aws ec2 terminate-instances --instance-ids $INSTANCE_ID
+              aws ec2 delete-security-group --group-id $SG_ID
+              exit 1
+            fi
+
+            echo "Waiting for SSM agent... ($i/60)"
+            sleep 5
+          done
+
+          # Run conversion via SSM
+          echo "Running qcow2 conversion..."
+          RAW_FILE=$(basename "$TEST_RAW_KEY")
+          QCOW2_FILE="test-$(date +%Y%m%d-%H%M%S).qcow2"
+          QCOW2_S3_KEY="aap-images/test/$QCOW2_FILE"
+
+          COMMAND_ID=$(aws ssm send-command \
+            --instance-ids $INSTANCE_ID \
+            --document-name "AWS-RunShellScript" \
+            --parameters commands="[
+              \"export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID\",
+              \"export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY\",
+              \"export AWS_DEFAULT_REGION=$AWS_DEFAULT_REGION\",
+              \"echo Downloading raw image...\",
+              \"aws s3 cp s3://$S3_BUCKET/$TEST_RAW_KEY /tmp/$RAW_FILE --no-progress\",
+              \"echo Converting to qcow2 with compression...\",
+              \"qemu-img convert -f raw -O qcow2 -c /tmp/$RAW_FILE /tmp/$QCOW2_FILE\",
+              \"echo Removing raw file...\",
+              \"rm -f /tmp/$RAW_FILE\",
+              \"echo Uploading qcow2...\",
+              \"aws s3 cp /tmp/$QCOW2_FILE s3://$S3_BUCKET/$QCOW2_S3_KEY --no-progress\",
+              \"echo Conversion complete\",
+              \"rm -f /tmp/$QCOW2_FILE\"
+            ]" \
+            --query 'Command.CommandId' \
+            --output text)
+
+          echo "Command ID: $COMMAND_ID"
+
+          # Wait for command to complete
+          echo "Waiting for conversion to complete..."
+          for i in {1..120}; do
+            STATUS=$(aws ssm get-command-invocation \
+              --command-id $COMMAND_ID \
+              --instance-id $INSTANCE_ID \
+              --query 'Status' \
+              --output text 2>/dev/null || echo "Pending")
+
+            if [ "$STATUS" = "Success" ]; then
+              echo "Conversion completed successfully!"
+              aws ssm get-command-invocation \
+                --command-id $COMMAND_ID \
+                --instance-id $INSTANCE_ID \
+                --query 'StandardOutputContent' \
+                --output text
+              break
+            elif [ "$STATUS" = "Failed" ]; then
+              echo "ERROR: Conversion failed"
+              aws ssm get-command-invocation \
+                --command-id $COMMAND_ID \
+                --instance-id $INSTANCE_ID \
+                --query 'StandardErrorContent' \
+                --output text
+              exit 1
+            fi
+
+            echo "Status: $STATUS ($i/120)"
+            sleep 3
+          done
+
+          # Verify qcow2 file exists in S3
+          echo "Verifying qcow2 file in S3..."
+          if aws s3 ls "s3://$S3_BUCKET/$QCOW2_S3_KEY"; then
+            echo "SUCCESS: qcow2 file created successfully!"
+          else
+            echo "ERROR: qcow2 file not found in S3"
+            exit 1
+          fi
+
+          # Cleanup
+          echo "Cleaning up resources..."
+
+          # Terminate instance
+          aws ec2 terminate-instances --instance-ids $INSTANCE_ID
+          echo "Waiting for instance termination..."
+          aws ec2 wait instance-terminated --instance-ids $INSTANCE_ID
+
+          # Delete security group
+          aws ec2 delete-security-group --group-id $SG_ID
+
+          # Delete test files from S3
+          aws s3 rm "s3://$S3_BUCKET/$TEST_RAW_KEY"
+          aws s3 rm "s3://$S3_BUCKET/$QCOW2_S3_KEY"
+
+          echo "Test completed successfully and all resources cleaned up!"
