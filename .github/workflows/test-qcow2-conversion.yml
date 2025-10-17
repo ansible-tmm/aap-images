@@ -73,11 +73,11 @@ jobs:
 
           # Create user-data script
           cat > /tmp/user-data.sh << 'USERDATA'
-#!/bin/bash
-set -x
-exec > /var/log/user-data.log 2>&1
-yum install -y qemu-img awscli
-USERDATA
+          #!/bin/bash
+          set -x
+          exec > /var/log/user-data.log 2>&1
+          yum install -y qemu-img awscli
+          USERDATA
 
           # Launch instance
           echo "Launching converter instance..."
