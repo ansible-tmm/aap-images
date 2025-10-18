@@ -363,9 +363,9 @@ jobs:
                 sleep 10
               done
 
-              # Run conversion directly via SSH (using inline command to avoid heredoc issues)
+              # Run conversion via SSH with keep-alive to prevent timeout during long conversion
               echo "Running qcow2 conversion (this may take 10-15 minutes)..."
-              ssh -o StrictHostKeyChecking=no -i /tmp/converter-key ec2-user@$PUBLIC_IP "export AWS_ACCESS_KEY_ID='$AWS_ACCESS_KEY_ID' && export AWS_SECRET_ACCESS_KEY='$AWS_SECRET_ACCESS_KEY' && export AWS_DEFAULT_REGION='$AWS_DEFAULT_REGION' && echo 'Downloading raw image...' && aws s3 cp s3://$S3_BUCKET/$S3_KEY /tmp/$RAW_FILE --no-progress && echo 'Converting to qcow2...' && sudo qemu-img convert -f raw -O qcow2 -c /tmp/$RAW_FILE /tmp/$QCOW2_FILE && echo 'Removing raw file...' && rm -f /tmp/$RAW_FILE && echo 'Uploading qcow2...' && aws s3 cp /tmp/$QCOW2_FILE s3://$S3_BUCKET/$QCOW2_S3_KEY --no-progress && echo 'Cleanup complete' && sudo rm -f /tmp/$QCOW2_FILE"
+              ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=60 -o ServerAliveCountMax=120 -i /tmp/converter-key ec2-user@$PUBLIC_IP "export AWS_ACCESS_KEY_ID='$AWS_ACCESS_KEY_ID' && export AWS_SECRET_ACCESS_KEY='$AWS_SECRET_ACCESS_KEY' && export AWS_DEFAULT_REGION='$AWS_DEFAULT_REGION' && echo 'Downloading raw image...' && aws s3 cp s3://$S3_BUCKET/$S3_KEY /tmp/$RAW_FILE --no-progress && echo 'Converting to qcow2...' && sudo qemu-img convert -f raw -O qcow2 -c /tmp/$RAW_FILE /tmp/$QCOW2_FILE && echo 'Removing raw file...' && rm -f /tmp/$RAW_FILE && echo 'Uploading qcow2...' && aws s3 cp /tmp/$QCOW2_FILE s3://$S3_BUCKET/$QCOW2_S3_KEY --no-progress && echo 'Cleanup complete' && sudo rm -f /tmp/$QCOW2_FILE"
 
               # Cleanup: Terminate instance
               echo "Terminating converter instance..."
