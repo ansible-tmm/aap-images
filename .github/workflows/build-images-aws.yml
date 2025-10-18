@@ -409,34 +409,14 @@ jobs:
             exit 1
           fi
 
-      - name: Rename qcow2 file with version
+      - name: Set qcow2 output URL
         id: rename-qcow2
         if: success()
         run: |
-          # Get the original S3 location and AMI name with version
-          ORIGINAL_S3_URL="${{ steps.wait-export.outputs.s3_url }}"
-          AMI_NAME="${{ steps.get-ami.outputs.final_name }}"
-          S3_BUCKET="${{ secrets.S3_BUCKET_NAME || 'aap-qcow2-images' }}"
-          FLAVOR_LOWER=$(echo "${{ matrix.flavor }}" | tr '[:upper:]' '[:lower:]')
-
-          # Extract the original S3 key from the URL
-          ORIGINAL_S3_KEY=$(echo "$ORIGINAL_S3_URL" | sed "s|s3://$S3_BUCKET/||")
-
-          # Create new S3 key with versioned name
-          NEW_S3_KEY="aap-images/$FLAVOR_LOWER/${AMI_NAME}.qcow2"
-
-          echo "Renaming qcow2 file in S3..."
-          echo "  From: $ORIGINAL_S3_KEY"
-          echo "  To: $NEW_S3_KEY"
-
-          # Copy to new name
-          aws s3 cp "s3://$S3_BUCKET/$ORIGINAL_S3_KEY" "s3://$S3_BUCKET/$NEW_S3_KEY"
-
-          # Delete the old file
-          aws s3 rm "s3://$S3_BUCKET/$ORIGINAL_S3_KEY"
-
-          echo "Renamed to: s3://$S3_BUCKET/$NEW_S3_KEY"
-          echo "versioned_s3_url=s3://$S3_BUCKET/$NEW_S3_KEY" >> $GITHUB_OUTPUT
+          # The qcow2 file is already created with the correct versioned name, just output the URL
+          S3_URL="${{ steps.wait-export.outputs.s3_url }}"
+          echo "✅ Final qcow2 image: $S3_URL"
+          echo "versioned_s3_url=$S3_URL" >> $GITHUB_OUTPUT
 
       - name: Cleanup AWS resources
         if: always()
