@@ -19,7 +19,7 @@ variable "aws_region" {
 
 variable "instance_type" {
     type    = string
-    default = "m5.8xlarge"
+    default = "m5.4xlarge"
 }
 
 variable "aap_include_controller" {
@@ -64,7 +64,7 @@ locals {
     image_label    = join("", local.enabled_labels)
 
     // Create ansible vars argument list depending on the presence of ansible_vars_file
-    extra_args_file = var.ansible_vars_file != null ? ["-e", var.ansible_vars_file, "-vvvv"] : ["-vv"]
+    extra_args_file = var.ansible_vars_file != null ? ["-e", var.ansible_vars_file] : []
     extra_args_common = [
         "-e", "@images/aap/extra-vars.yml",
         "-e", "ansible_python_interpreter=/usr/bin/python3",
@@ -81,7 +81,7 @@ source "amazon-ebs" "automation-controller" {
     region          = var.aws_region
     source_ami_filter {
         filters = {
-            name                = "RHEL-9.*_HVM-*-x86_64-*-Hourly2-GP2"
+            name                = "RHEL-9*_HVM-*-x86_64-*-GP*"
             root-device-type    = "ebs"
             virtualization-type = "hvm"
         }
@@ -90,10 +90,10 @@ source "amazon-ebs" "automation-controller" {
     }
     instance_type = var.instance_type
     ssh_username  = "ec2-user"
-    ssh_timeout = "20m"
-    ssh_handshake_attempts = 200
+    ssh_timeout = "30m"
+    ssh_handshake_attempts = 300
     ssh_keep_alive_interval = "5s"
-    ssh_read_write_timeout = "10m"
+    ssh_read_write_timeout = "30m"
     ami_name      = "aap-temp-${local.image_label}-${formatdate("YYYYMMDD", timestamp())}"
     
     launch_block_device_mappings {
@@ -139,17 +139,6 @@ build {
         ]
     }
 
-    // Wait and verify SSH connectivity
-    provisioner "shell" {
-        inline = [
-            "echo 'Waiting for SSH to stabilize...'",
-            "sleep 10",
-            "echo 'Testing SSH connectivity...'",
-            "whoami",
-            "echo 'SSH test completed successfully'"
-        ]
-    }
-
     // Pre install tasks
     provisioner "ansible" {
         command = "ansible-playbook"
@@ -157,7 +146,7 @@ build {
         user = "ec2-user"
         inventory_file_template = "controller ansible_host={{ .Host }} ansible_user={{ .User }} ansible_port={{ .Port }}\n"
         use_proxy = false
-        extra_arguments = concat(local.extra_args, ["-e", "rhel_user_password=dummy_password_not_needed", "-e", "ansible_become_pass="])
+        extra_arguments = local.extra_args
     }
 
     // Extract version information from the VM and save to build environment
@@ -185,10 +174,13 @@ build {
 
     // Platform install
     provisioner "shell" {
+        expect_disconnect = true
+        pause_after = "30s"
+        timeout = "60m"
         inline = [
             "if [ -d /tmp/ansible-automation-platform-containerized-setup ]; then",
             "  cd /tmp/ansible-automation-platform-containerized-setup",
-            "  ANSIBLE_COLLECTIONS_PATH=/tmp/ansible-automation-platform-containerized-setup/collections ansible-playbook -v -i inventory.custom ansible.containerized_installer.install",
+            "  ANSIBLE_COLLECTIONS_PATH=/tmp/ansible-automation-platform-containerized-setup/collections ansible-playbook -i inventory.custom ansible.containerized_installer.install",
             "else",
             "  echo 'Directory /tmp/ansible-automation-platform-containerized-setup does not exist.'",
             "  ls /tmp",
@@ -204,7 +196,7 @@ build {
         user = "ec2-user"
         inventory_file_template = "controller ansible_host={{ .Host }} ansible_user={{ .User }} ansible_port={{ .Port }}\n"
         use_proxy = false
-        extra_arguments = concat(local.extra_args, ["-e", "rhel_user_password=dummy_password_not_needed"])
+        extra_arguments = local.extra_args
     }
 
 
