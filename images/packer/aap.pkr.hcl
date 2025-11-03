@@ -158,15 +158,16 @@ build {
         direction = "download"
     }
 
-    // Platform install
+    // Platform install (run as rhel user so containers are created under rhel)
     provisioner "shell" {
         expect_disconnect = true
         pause_after = "30s"
         timeout = "60m"
         inline = [
             "if [ -d /tmp/ansible-automation-platform-containerized-setup ]; then",
+            "  sudo chown -R rhel:rhel /tmp/ansible-automation-platform-containerized-setup",
             "  cd /tmp/ansible-automation-platform-containerized-setup",
-            "  ANSIBLE_COLLECTIONS_PATH=/tmp/ansible-automation-platform-containerized-setup/collections ansible-playbook -i inventory.custom ansible.containerized_installer.install",
+            "  sudo -u rhel ANSIBLE_COLLECTIONS_PATH=/tmp/ansible-automation-platform-containerized-setup/collections ansible-playbook -i inventory.custom ansible.containerized_installer.install",
             "else",
             "  echo 'Directory /tmp/ansible-automation-platform-containerized-setup does not exist.'",
             "  ls /tmp",

@@ -7,32 +7,26 @@
 
   tasks:
 
-    - name: Create rhel user by reassigning ec2-user's UID
+    - name: Create rhel user (without modifying ec2-user)
       block:
-        - name: Check if ec2-user exists
-          ansible.builtin.command: id ec2-user
-          register: ec2_user_check
-          failed_when: false
-          changed_when: false
-
         - name: Check if rhel user exists
           ansible.builtin.command: id rhel
           register: rhel_user_check
           failed_when: false
           changed_when: false
 
-        - name: Change ec2-user UID to 1500 temporarily (to free up UID 1000)
-          ansible.builtin.command: usermod -u 1500 ec2-user
+        - name: Create rhel group
+          ansible.builtin.group:
+            name: rhel
+            gid: 1001
+            state: present
           become: true
-          when:
-            - ec2_user_check.rc == 0
-            - rhel_user_check.rc != 0
-          ignore_errors: true
+          when: rhel_user_check.rc != 0
 
-        - name: Create rhel user with UID 1000
+        - name: Create rhel user with UID 1001
           ansible.builtin.user:
             name: rhel
-            uid: 1000
+            uid: 1001
             group: rhel
             groups: wheel
             shell: /bin/bash
@@ -53,9 +47,7 @@
             mode: '0600'
             remote_src: true
           become: true
-          when:
-            - ec2_user_check.rc == 0
-            - rhel_user_check.rc != 0
+          when: rhel_user_check.rc != 0
 
         - name: Ensure rhel user has sudo permissions
           ansible.builtin.copy:
