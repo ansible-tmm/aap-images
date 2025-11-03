@@ -167,7 +167,7 @@ build {
             "if [ -d /tmp/ansible-automation-platform-containerized-setup ]; then",
             "  sudo chown -R rhel:rhel /tmp/ansible-automation-platform-containerized-setup",
             "  cd /tmp/ansible-automation-platform-containerized-setup",
-            "  sudo -u rhel ANSIBLE_COLLECTIONS_PATH=/tmp/ansible-automation-platform-containerized-setup/collections ansible-playbook -i inventory.custom ansible.containerized_installer.install",
+            "  sudo -i -u rhel bash -c 'cd /tmp/ansible-automation-platform-containerized-setup && ANSIBLE_COLLECTIONS_PATH=/tmp/ansible-automation-platform-containerized-setup/collections ansible-playbook -i inventory.custom ansible.containerized_installer.install'",
             "else",
             "  echo 'Directory /tmp/ansible-automation-platform-containerized-setup does not exist.'",
             "  ls /tmp",
