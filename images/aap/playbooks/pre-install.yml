@@ -7,6 +7,47 @@
 
   tasks:
 
+    - name: Remove ec2-user if it exists
+      block:
+        - name: Check if ec2-user exists
+          ansible.builtin.command: id ec2-user
+          register: ec2_user_check
+          failed_when: false
+          changed_when: false
+
+        - name: Stop all processes owned by ec2-user
+          ansible.builtin.shell: |
+            pkill -u ec2-user || true
+          become: true
+          when: ec2_user_check.rc == 0
+
+        - name: Remove ec2-user
+          ansible.builtin.user:
+            name: ec2-user
+            state: absent
+            remove: true
+            force: true
+          become: true
+          when: ec2_user_check.rc == 0
+
+        - name: Remove ec2-user home directory
+          ansible.builtin.file:
+            path: /home/ec2-user
+            state: absent
+          become: true
+          when: ec2_user_check.rc == 0
+
+    - name: Ensure rhel user exists with UID 1000
+      ansible.builtin.user:
+        name: rhel
+        uid: 1000
+        group: rhel
+        groups: wheel
+        append: true
+        shell: /bin/bash
+        create_home: true
+      become: true
+
     - name: Set the system hostname for the AAP installer
       become: true
       ansible.builtin.command: hostnamectl set-hostname {{ installer_fqdn_hostname }}
