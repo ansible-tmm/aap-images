@@ -7,7 +7,7 @@
 
   tasks:
 
-    - name: Rename ec2-user to rhel if ec2-user exists
+    - name: Create rhel user by reassigning ec2-user's UID
       block:
         - name: Check if ec2-user exists
           ansible.builtin.command: id ec2-user
@@ -21,30 +21,50 @@
           failed_when: false
           changed_when: false
 
-        - name: Rename ec2-user to rhel (preserves UID and processes)
-          ansible.builtin.command: usermod -l rhel -d /home/rhel -m ec2-user
+        - name: Change ec2-user UID to 1500 temporarily (to free up UID 1000)
+          ansible.builtin.command: usermod -u 1500 ec2-user
+          become: true
+          when:
+            - ec2_user_check.rc == 0
+            - rhel_user_check.rc != 0
+          ignore_errors: true
+
+        - name: Create rhel user with UID 1000
+          ansible.builtin.user:
+            name: rhel
+            uid: 1000
+            group: rhel
+            groups: wheel
+            shell: /bin/bash
+            create_home: true
+          become: true
+          when: rhel_user_check.rc != 0
+
+        - name: Set password for rhel user
+          ansible.builtin.shell: echo "rhel:{{ rhel_user_password }}" | chpasswd
+          become: true
+
+        - name: Copy SSH authorized_keys from ec2-user to rhel
+          ansible.builtin.copy:
+            src: /home/ec2-user/.ssh/authorized_keys
+            dest: /home/rhel/.ssh/authorized_keys
+            owner: rhel
+            group: rhel
+            mode: '0600'
+            remote_src: true
           become: true
           when:
             - ec2_user_check.rc == 0
             - rhel_user_check.rc != 0
 
-        - name: Rename ec2-user group to rhel
-          ansible.builtin.command: groupmod -n rhel ec2-user
+        - name: Ensure rhel user has sudo permissions
+          ansible.builtin.copy:
+            content: 'rhel ALL=(ALL) NOPASSWD:ALL'
+            dest: /etc/sudoers.d/rhel
+            owner: root
+            group: root
+            mode: '0440'
           become: true
-          when:
-            - ec2_user_check.rc == 0
-            - rhel_user_check.rc != 0
-
-    - name: Ensure rhel user is in wheel group
-      ansible.builtin.user:
-        name: rhel
-        groups: wheel
-        append: true
-      become: true
-
-    - name: Set password for rhel user
-      become: true
-      ansible.builtin.shell: echo "rhel:{{ rhel_user_password }}" | chpasswd
 
     - name: Set the system hostname for the AAP installer
       become: true
