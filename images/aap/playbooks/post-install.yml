@@ -46,6 +46,7 @@
       ansible.builtin.file:
         path: /tmp/manifest.zip
         state: absent
+      become: true
 
     - name: Clean up manifest.zip.gpg
       ansible.builtin.file:
@@ -57,6 +58,7 @@
       ansible.builtin.file:
         path: "{{ installer_directory }}/inventory.custom"
         state: absent
+      become: true
 
     - name: Enable lingering for user to allow containers to start on boot
       ansible.builtin.command: loginctl enable-linger {{ ansible_user_id }}
