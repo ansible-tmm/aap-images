@@ -71,6 +71,27 @@
       register: hostname_check
       failed_when: "'127.0.0.1' not in hostname_check.stdout"
 
+    - name: Ensure SSH service is running after system changes
+      ansible.builtin.service:
+        name: sshd
+        state: started
+      become: true
+
+    - name: Wait for SSH to be available
+      ansible.builtin.wait_for:
+        port: 22
+        host: "{{ ansible_host | default(inventory_hostname) }}"
+        delay: 2
+        timeout: 30
+      delegate_to: localhost
+      become: false
+
+    - name: Verify SSH is still working after user rename
+      ansible.builtin.ping:
+      retries: 3
+      delay: 5
+      until: true
+
     - name: Install ansible-core, wget, git, rsync, and podman
       ansible.builtin.package:
         name:
@@ -217,10 +238,10 @@
         state: present
       become: true
 
-    - name: Restart SSHD to apply changes
+    - name: Reload SSHD to apply changes (without dropping connections)
       ansible.builtin.service:
         name: sshd
-        state: restarted
+        state: reloaded
       become: true
 
     # Password will be set during image deployment, not during build
