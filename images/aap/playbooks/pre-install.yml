@@ -7,7 +7,7 @@
 
   tasks:
 
-    - name: Remove ec2-user if it exists
+    - name: Rename ec2-user to rhel if ec2-user exists
       block:
         - name: Check if ec2-user exists
           ansible.builtin.command: id ec2-user
@@ -15,38 +15,36 @@
           failed_when: false
           changed_when: false
 
-        - name: Stop all processes owned by ec2-user
-          ansible.builtin.shell: |
-            pkill -u ec2-user || true
-          become: true
-          when: ec2_user_check.rc == 0
+        - name: Check if rhel user exists
+          ansible.builtin.command: id rhel
+          register: rhel_user_check
+          failed_when: false
+          changed_when: false
 
-        - name: Remove ec2-user
-          ansible.builtin.user:
-            name: ec2-user
-            state: absent
-            remove: true
-            force: true
+        - name: Rename ec2-user to rhel (preserves UID and processes)
+          ansible.builtin.command: usermod -l rhel -d /home/rhel -m ec2-user
           become: true
-          when: ec2_user_check.rc == 0
+          when:
+            - ec2_user_check.rc == 0
+            - rhel_user_check.rc != 0
 
-        - name: Remove ec2-user home directory
-          ansible.builtin.file:
-            path: /home/ec2-user
-            state: absent
+        - name: Rename ec2-user group to rhel
+          ansible.builtin.command: groupmod -n rhel ec2-user
           become: true
-          when: ec2_user_check.rc == 0
+          when:
+            - ec2_user_check.rc == 0
+            - rhel_user_check.rc != 0
 
-    - name: Ensure rhel user exists with UID 1000
+    - name: Ensure rhel user is in wheel group
       ansible.builtin.user:
         name: rhel
-        uid: 1000
-        group: rhel
         groups: wheel
         append: true
-        shell: /bin/bash
-        create_home: true
       become: true
+
+    - name: Set password for rhel user
+      become: true
+      ansible.builtin.shell: echo "rhel:{{ rhel_user_password }}" | chpasswd
 
     - name: Set the system hostname for the AAP installer
       become: true
@@ -235,10 +233,6 @@
     - name: Debug cloud-init status
       ansible.builtin.debug:
         msg: "Cloud-init package status: {{ cloud_init_check.stdout if cloud_init_check.rc == 0 else 'Not installed' }}"
-
-    - name: Set password for rhel user using variable
-      become: true
-      ansible.builtin.shell: echo "rhel:{{ rhel_user_password }}" | chpasswd
 
     - name: Install cloud-init
       ansible.builtin.package:

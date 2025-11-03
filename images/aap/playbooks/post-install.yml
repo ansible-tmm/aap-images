@@ -58,6 +58,11 @@
         path: "{{ installer_directory }}/inventory.custom"
         state: absent
 
+    - name: Enable lingering for user to allow containers to start on boot
+      ansible.builtin.command: loginctl enable-linger {{ ansible_user_id }}
+      become: true
+      changed_when: true
+
     - name: Copy installer directory to /root
       ansible.builtin.copy:
         src: "{{ installer_directory }}"
