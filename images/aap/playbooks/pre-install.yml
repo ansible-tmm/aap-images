@@ -38,6 +38,16 @@
           ansible.builtin.shell: echo "rhel:{{ rhel_user_password }}" | chpasswd
           become: true
 
+        - name: Create .ssh directory for rhel user
+          ansible.builtin.file:
+            path: /home/rhel/.ssh
+            state: directory
+            owner: rhel
+            group: rhel
+            mode: '0700'
+          become: true
+          when: rhel_user_check.rc != 0
+
         - name: Copy SSH authorized_keys from ec2-user to rhel
           ansible.builtin.copy:
             src: /home/ec2-user/.ssh/authorized_keys
