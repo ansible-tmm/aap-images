@@ -93,7 +93,7 @@ source "amazon-ebs" "automation-controller" {
     ssh_timeout = "30m"
     ssh_handshake_attempts = 300
     ssh_keep_alive_interval = "5s"
-    ssh_read_write_timeout = "30m"
+    ssh_read_write_timeout = "90m"
     ami_name      = "aap-temp-${local.image_label}-${formatdate("YYYYMMDD", timestamp())}"
     
     launch_block_device_mappings {
@@ -160,14 +160,12 @@ build {
 
     // Platform install (run as rhel user so containers are created under rhel)
     provisioner "shell" {
-        expect_disconnect = true
-        pause_after = "30s"
-        timeout = "60m"
+        timeout = "90m"
         inline = [
             "if [ -d /tmp/ansible-automation-platform-containerized-setup ]; then",
             "  sudo chown -R rhel:rhel /tmp/ansible-automation-platform-containerized-setup",
             "  cd /tmp/ansible-automation-platform-containerized-setup",
-            "  sudo -i -u rhel bash -c 'cd /tmp/ansible-automation-platform-containerized-setup && ANSIBLE_COLLECTIONS_PATH=/tmp/ansible-automation-platform-containerized-setup/collections ansible-playbook -i inventory.custom ansible.containerized_installer.install'",
+            "  sudo -u rhel XDG_RUNTIME_DIR=/run/user/1001 ANSIBLE_COLLECTIONS_PATH=/tmp/ansible-automation-platform-containerized-setup/collections ansible-playbook -i inventory.custom ansible.containerized_installer.install",
             "else",
             "  echo 'Directory /tmp/ansible-automation-platform-containerized-setup does not exist.'",
             "  ls /tmp",
