@@ -125,21 +125,7 @@ build {
         ]
     }
 
-    // Create rhel user for compatibility with Google Cloud images
-    provisioner "shell" {
-        inline = [
-            "sudo useradd -m -s /bin/bash rhel",
-            "sudo usermod -aG wheel rhel",
-            "echo 'rhel ALL=(ALL) NOPASSWD:ALL' | sudo tee /etc/sudoers.d/rhel",
-            "sudo mkdir -p /home/rhel/.ssh",
-            "sudo cp /home/ec2-user/.ssh/authorized_keys /home/rhel/.ssh/",
-            "sudo chown -R rhel:rhel /home/rhel/.ssh",
-            "sudo chmod 700 /home/rhel/.ssh",
-            "sudo chmod 600 /home/rhel/.ssh/authorized_keys"
-        ]
-    }
-
-    // Pre install tasks
+    // Pre install tasks (rhel user is created by renaming ec2-user in the pre-install playbook)
     provisioner "ansible" {
         command = "ansible-playbook"
         playbook_file = "${path.root}/../aap/playbooks/pre-install.yml"
@@ -189,11 +175,11 @@ build {
         ]
     }
 
-    // Post install tasks
+    // Post install tasks (connects as rhel after user rename in pre-install)
     provisioner "ansible" {
         command = "ansible-playbook"
         playbook_file = "${path.root}/../aap/playbooks/post-install.yml"
-        user = "ec2-user"
+        user = "rhel"
         inventory_file_template = "controller ansible_host={{ .Host }} ansible_user={{ .User }} ansible_port={{ .Port }}\n"
         use_proxy = false
         extra_arguments = local.extra_args
