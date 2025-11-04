@@ -68,15 +68,6 @@
             mode: '0440'
           become: true
 
-        - name: Enable lingering for rhel user to allow systemd user session
-          ansible.builtin.command: loginctl enable-linger rhel
-          become: true
-          changed_when: true
-
-        - name: Wait for lingering to initialize
-          ansible.builtin.pause:
-            seconds: 3
-
     - name: Set the system hostname for the AAP installer
       become: true
       ansible.builtin.command: hostnamectl set-hostname {{ installer_fqdn_hostname }}
