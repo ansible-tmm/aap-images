@@ -73,6 +73,10 @@
           become: true
           changed_when: true
 
+        - name: Wait for lingering to initialize
+          ansible.builtin.pause:
+            seconds: 3
+
     - name: Set the system hostname for the AAP installer
       become: true
       ansible.builtin.command: hostnamectl set-hostname {{ installer_fqdn_hostname }}
@@ -113,11 +117,15 @@
       delegate_to: localhost
       become: false
 
-    - name: Verify SSH is still working after user rename
+    - name: Verify SSH is still working after user creation
       ansible.builtin.ping:
       retries: 3
       delay: 5
       until: true
+
+    - name: Wait a moment for SSH to stabilize
+      ansible.builtin.pause:
+        seconds: 10
 
     - name: Install ansible-core, wget, git, rsync, and podman
       ansible.builtin.package:
@@ -129,6 +137,10 @@
           - podman
         state: present
       become: true
+      retries: 3
+      delay: 10
+      register: package_install
+      until: package_install is succeeded
 
     - name: Download Ansible Automation Platform installer
       ansible.builtin.get_url:
