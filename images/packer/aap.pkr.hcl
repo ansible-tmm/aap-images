@@ -164,6 +164,9 @@ build {
         inline = [
             "if [ -d /tmp/ansible-automation-platform-containerized-setup ]; then",
             "  sudo chown -R rhel:rhel /tmp/ansible-automation-platform-containerized-setup",
+            "  echo 'Enabling lingering for rhel user...'",
+            "  sudo loginctl enable-linger rhel",
+            "  sleep 5",
             "  cd /tmp/ansible-automation-platform-containerized-setup",
             "  sudo -u rhel XDG_RUNTIME_DIR=/run/user/1001 ANSIBLE_COLLECTIONS_PATH=/tmp/ansible-automation-platform-containerized-setup/collections ansible-playbook -i inventory.custom ansible.containerized_installer.install",
             "else",
