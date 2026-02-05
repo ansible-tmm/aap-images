@@ -249,8 +249,8 @@ jobs:
                 S3_KEY="${S3_PREFIX}${EXPORT_TASK_ID}.raw"
               fi
 
-              echo "✅ Raw image export completed!"
-              echo "📦 Raw image available at: s3://$S3_BUCKET/$S3_KEY"
+              echo "Raw image export completed!"
+              echo "Raw image available at: s3://$S3_BUCKET/$S3_KEY"
               
               # Convert RAW to qcow2 using temporary EC2 instance
               echo "Converting raw image to qcow2 format using temporary EC2 instance..."
@@ -365,7 +365,7 @@ jobs:
 
               # Run conversion via SSH with keep-alive to prevent timeout during long conversion
               echo "Running qcow2 conversion (this may take 10-15 minutes)..."
-              ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=60 -o ServerAliveCountMax=120 -i /tmp/converter-key ec2-user@$PUBLIC_IP "export AWS_ACCESS_KEY_ID='$AWS_ACCESS_KEY_ID' && export AWS_SECRET_ACCESS_KEY='$AWS_SECRET_ACCESS_KEY' && export AWS_DEFAULT_REGION='$AWS_DEFAULT_REGION' && echo 'Downloading raw image...' && aws s3 cp s3://$S3_BUCKET/$S3_KEY /tmp/$RAW_FILE --no-progress && echo 'Converting to qcow2...' && sudo qemu-img convert -f raw -O qcow2 -c /tmp/$RAW_FILE /tmp/$QCOW2_FILE && echo 'Removing raw file...' && rm -f /tmp/$RAW_FILE && echo 'Uploading qcow2...' && aws s3 cp /tmp/$QCOW2_FILE s3://$S3_BUCKET/$QCOW2_S3_KEY --no-progress && echo 'Cleanup complete' && sudo rm -f /tmp/$QCOW2_FILE"
+              ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=240 -o TCPKeepAlive=yes -i /tmp/converter-key ec2-user@$PUBLIC_IP "export AWS_ACCESS_KEY_ID='$AWS_ACCESS_KEY_ID' && export AWS_SECRET_ACCESS_KEY='$AWS_SECRET_ACCESS_KEY' && export AWS_DEFAULT_REGION='$AWS_DEFAULT_REGION' && echo 'Downloading raw image...' && aws s3 cp s3://$S3_BUCKET/$S3_KEY /tmp/$RAW_FILE --no-progress && echo 'Converting to qcow2...' && qemu-img convert -f raw -O qcow2 -c /tmp/$RAW_FILE /tmp/$QCOW2_FILE && echo 'Removing raw file...' && rm -f /tmp/$RAW_FILE && echo 'Uploading qcow2...' && aws s3 cp /tmp/$QCOW2_FILE s3://$S3_BUCKET/$QCOW2_S3_KEY --no-progress && echo 'Cleanup complete' && rm -f /tmp/$QCOW2_FILE"
 
               # Cleanup: Terminate instance
               echo "Terminating converter instance..."
@@ -387,15 +387,15 @@ jobs:
               echo "Deleting raw file from S3..."
               aws s3 rm "s3://$S3_BUCKET/$S3_KEY"
 
-              echo "✅ Conversion completed!"
-              echo "📦 qcow2 image available at: s3://$S3_BUCKET/$QCOW2_S3_KEY"
+              echo "Conversion completed!"
+              echo "qcow2 image available at: s3://$S3_BUCKET/$QCOW2_S3_KEY"
               echo "s3_url=s3://$S3_BUCKET/$QCOW2_S3_KEY" >> $GITHUB_OUTPUT
               break
             elif [ "$STATUS" = "cancelled" ] || [ "$STATUS" = "cancelling" ]; then
-              echo "❌ Export was cancelled"
+              echo "ERROR: Export was cancelled"
               exit 1
             elif [ "$STATUS" = "failed" ]; then
-              echo "❌ Export failed"
+              echo "ERROR: Export failed"
               aws ec2 describe-export-image-tasks --export-image-task-ids "$EXPORT_TASK_ID"
               exit 1
             fi
@@ -405,7 +405,7 @@ jobs:
           done
           
           if [ $ELAPSED -ge $TIMEOUT ]; then
-            echo "❌ Export timed out after 2 hours"
+            echo "ERROR: Export timed out after 2 hours"
             exit 1
           fi
 
@@ -415,7 +415,7 @@ jobs:
         run: |
           # The qcow2 file is already created with the correct versioned name, just output the URL
           S3_URL="${{ steps.wait-export.outputs.s3_url }}"
-          echo "✅ Final qcow2 image: $S3_URL"
+          echo "Final qcow2 image: $S3_URL"
           echo "versioned_s3_url=$S3_URL" >> $GITHUB_OUTPUT
 
       - name: Cleanup AWS resources
@@ -424,7 +424,7 @@ jobs:
           AMI_ID="${{ steps.get-ami.outputs.ami_id }}"
 
           if [ -n "$AMI_ID" ] && [ "$AMI_ID" != "null" ]; then
-            echo "🧹 Cleaning up AWS resources for AMI: $AMI_ID"
+            echo "Cleaning up AWS resources for AMI: $AMI_ID"
             
             # Get snapshot IDs associated with the AMI
             SNAPSHOT_IDS=$(aws ec2 describe-images \
@@ -434,7 +434,7 @@ jobs:
               --region ${{ secrets.AWS_REGION || 'us-east-1' }} || echo "")
             
             # Deregister the AMI
-            echo "🗑️ Deregistering AMI: $AMI_ID"
+            echo "Deregistering AMI: $AMI_ID"
             aws ec2 deregister-image \
               --image-id "$AMI_ID" \
               --region ${{ secrets.AWS_REGION || 'us-east-1' }} || echo "Failed to deregister AMI"
@@ -443,23 +443,23 @@ jobs:
             if [ -n "$SNAPSHOT_IDS" ] && [ "$SNAPSHOT_IDS" != "None" ]; then
               for SNAPSHOT_ID in $SNAPSHOT_IDS; do
                 if [ "$SNAPSHOT_ID" != "None" ]; then
-                  echo "🗑️ Deleting snapshot: $SNAPSHOT_ID"
+                  echo "Deleting snapshot: $SNAPSHOT_ID"
                   aws ec2 delete-snapshot \
                     --snapshot-id "$SNAPSHOT_ID" \
                     --region ${{ secrets.AWS_REGION || 'us-east-1' }} || echo "Failed to delete snapshot $SNAPSHOT_ID"
                 fi
               done
             fi
-            
-            echo "✅ AWS cleanup completed"
+
+            echo "AWS cleanup completed"
           else
-            echo "ℹ️ No AMI to cleanup"
+            echo "No AMI to cleanup"
           fi
 
       - name: Generate build summary
         if: success()
         run: |
-          echo "## 🎉 AAP Image Build Complete - Flavor: ${{ matrix.flavor }}" >> $GITHUB_STEP_SUMMARY
+          echo "## AAP Image Build Complete - Flavor: ${{ matrix.flavor }}" >> $GITHUB_STEP_SUMMARY
           echo "**AMI Name:** ${{ steps.get-ami.outputs.final_name }}" >> $GITHUB_STEP_SUMMARY
           echo "**S3 Location:** ${{ steps.rename-qcow2.outputs.versioned_s3_url }}" >> $GITHUB_STEP_SUMMARY
           echo "**Build Date:** $(date)" >> $GITHUB_STEP_SUMMARY
