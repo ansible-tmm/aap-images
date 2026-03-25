@@ -7,6 +7,8 @@ installer_registry_password: "{{ lookup('env', 'INSTALLER_REGISTRY_PASSWORD') | 
 aap_include_controller:      true
 aap_include_eda_controller:  false
 aap_include_automation_hub:  false
+aap_include_mcp_server:      false
+mcp_allow_write_operations:  "true"
 rhel_user_password:          "{{ lookup('env', 'RHEL_USER_PASSWORD') | default('CHANGEME', true) }}"
 ###
 

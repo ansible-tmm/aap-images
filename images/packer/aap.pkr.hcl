@@ -37,6 +37,11 @@ variable "aap_include_eda_controller" {
     default = false
 }
 
+variable "aap_include_mcp_server" {
+    type    = bool
+    default = false
+}
+
 variable "ansible_vars_file" {
     type    = string
     default = null
@@ -57,6 +62,10 @@ locals {
             enabled = var.aap_include_automation_hub
             label   = "h"
         }
+        mcp_server = {
+            enabled = var.aap_include_mcp_server
+            label   = "m"
+        }
     }
 
     // Construct the image label based on enabled components (sorted alphabetically)
@@ -70,7 +79,8 @@ locals {
         "-e", "ansible_python_interpreter=/usr/bin/python3",
         "-e", "aap_include_controller=${var.aap_include_controller}",
         "-e", "aap_include_automation_hub=${var.aap_include_automation_hub}",
-        "-e", "aap_include_eda_controller=${var.aap_include_eda_controller}"
+        "-e", "aap_include_eda_controller=${var.aap_include_eda_controller}",
+        "-e", "aap_include_mcp_server=${var.aap_include_mcp_server}"
     ]
 
     // Combine arguments into extra_args

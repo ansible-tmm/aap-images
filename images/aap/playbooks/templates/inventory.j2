@@ -26,6 +26,13 @@
 [automationgateway]
 {{ installer_fqdn_hostname }} ansible_connection=local
 
+{% if aap_include_mcp_server|bool %}
+# This section is for the Ansible MCP server host
+# -------------------------------------------------
+[ansiblemcp]
+{{ installer_fqdn_hostname }} ansible_connection=local
+{% endif %}
+
 # This section is for your AAP Execution host(s)
 # ------------------------------------------------
 #[execution_nodes]
@@ -79,3 +86,8 @@ automationhub_collection_seed_repository=validated
 gateway_admin_password={{ installer_admin_pw }}
 gateway_pg_host={{ installer_fqdn_hostname }}
 gateway_pg_password={{ installer_admin_pw }}
+
+{% if aap_include_mcp_server|bool %}
+# Ansible MCP server permissions
+mcp_allow_write_operations={{ mcp_allow_write_operations | lower }}
+{% endif %}
