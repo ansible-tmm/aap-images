@@ -98,6 +98,7 @@ gateway_pg_password={{ installer_admin_pw }}
 # AAP Automation Metrics - required for 2.7+
 automationmetrics_pg_host={{ installer_fqdn_hostname }}
 automationmetrics_pg_password={{ installer_admin_pw }}
+automationmetrics_controller_read_pg_host={{ installer_fqdn_hostname }}
 {% endif %}
 
 {% if aap_include_mcp_server|bool %}
