@@ -26,6 +26,13 @@
 [automationgateway]
 {{ installer_fqdn_hostname }} ansible_connection=local
 
+{% if aap_version is defined and aap_version is version('2.7', '>=') %}
+# This section is for your AAP Automation Metrics host(s)
+# ---------------------------------------------------------
+[automationmetrics]
+{{ installer_fqdn_hostname }} ansible_connection=local
+{% endif %}
+
 {% if aap_include_mcp_server|bool %}
 # This section is for the Ansible MCP server host
 # -------------------------------------------------

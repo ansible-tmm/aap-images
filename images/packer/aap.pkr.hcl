@@ -42,6 +42,11 @@ variable "aap_include_mcp_server" {
     default = false
 }
 
+variable "aap_version" {
+    type    = string
+    default = "2.5"
+}
+
 variable "ansible_vars_file" {
     type    = string
     default = null
@@ -80,7 +85,8 @@ locals {
         "-e", "aap_include_controller=${var.aap_include_controller}",
         "-e", "aap_include_automation_hub=${var.aap_include_automation_hub}",
         "-e", "aap_include_eda_controller=${var.aap_include_eda_controller}",
-        "-e", "aap_include_mcp_server=${var.aap_include_mcp_server}"
+        "-e", "aap_include_mcp_server=${var.aap_include_mcp_server}",
+        "-e", "aap_version=${var.aap_version}"
     ]
 
     // Combine arguments into extra_args
