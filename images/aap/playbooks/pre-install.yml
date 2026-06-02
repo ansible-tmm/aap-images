@@ -268,13 +268,20 @@
         state: present
       become: true
 
-    - name: Reload SSHD to apply changes (without dropping connections)
+    - name: Reload SSHD to apply changes
       ansible.builtin.service:
         name: sshd
         state: reloaded
       become: true
 
-    # Password will be set during image deployment, not during build
+    - name: Wait for SSH to come back after reload
+      ansible.builtin.wait_for:
+        port: 22
+        host: "{{ ansible_host | default(inventory_hostname) }}"
+        delay: 5
+        timeout: 60
+      delegate_to: localhost
+      become: false
 
     - name: Verify cloud-init is already installed
       ansible.builtin.command: rpm -q cloud-init
