@@ -118,18 +118,6 @@
       ansible.builtin.pause:
         seconds: 10
 
-    - name: Enable subscription-manager repo management
-      community.general.ini_file:
-        path: /etc/rhsm/rhsm.conf
-        section: rhsm
-        option: manage_repos
-        value: "1"
-      become: true
-
-    - name: Refresh subscription-manager
-      ansible.builtin.command: subscription-manager refresh
-      become: true
-
     - name: Install ansible-core, wget, git, rsync, and podman
       ansible.builtin.package:
         name:
