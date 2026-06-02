@@ -8,9 +8,10 @@ on:
         required: true
         type: choice
         options:
-          - '2.5'
+          - '2.7'
           - '2.6'
-        default: '2.5'
+          - '2.5'
+        default: '2.7'
 
 env:
   PACKER_VERSION: "latest"
@@ -35,7 +36,10 @@ jobs:
 
       - name: Set INSTALLER_URL based on AAP version
         run: |
-          if [ "${{ github.event.inputs.aap_version }}" == "2.6" ]; then
+          if [ "${{ github.event.inputs.aap_version }}" == "2.7" ]; then
+            INSTALLER_URL="${{ secrets.INSTALLER_URL_27 }}"
+            echo "Using AAP 2.7 installer URL"
+          elif [ "${{ github.event.inputs.aap_version }}" == "2.6" ]; then
             INSTALLER_URL="${{ secrets.INSTALLER_URL_26 }}"
             echo "Using AAP 2.6 installer URL"
           else
@@ -104,7 +108,7 @@ jobs:
           fi
 
           # MCP server is only available in AAP 2.6+
-          if [ "${{ github.event.inputs.aap_version }}" == "2.6" ]; then
+          if [ "${{ github.event.inputs.aap_version }}" == "2.6" ] || [ "${{ github.event.inputs.aap_version }}" == "2.7" ]; then
             export AAP_INCLUDE_MCP_SERVER=true
           else
             export AAP_INCLUDE_MCP_SERVER=false
