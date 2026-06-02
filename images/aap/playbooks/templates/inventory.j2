@@ -94,6 +94,12 @@ gateway_admin_password={{ installer_admin_pw }}
 gateway_pg_host={{ installer_fqdn_hostname }}
 gateway_pg_password={{ installer_admin_pw }}
 
+{% if aap_version is defined and aap_version is version('2.7', '>=') %}
+# AAP Automation Metrics - required for 2.7+
+automationmetrics_pg_host={{ installer_fqdn_hostname }}
+automationmetrics_pg_password={{ installer_admin_pw }}
+{% endif %}
+
 {% if aap_include_mcp_server|bool %}
 # Ansible MCP server permissions
 mcp_allow_write_operations={{ mcp_allow_write_operations | lower }}
