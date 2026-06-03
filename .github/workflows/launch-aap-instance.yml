@@ -301,6 +301,20 @@ jobs:
 
           echo "sg_id=$SG_ID" >> $GITHUB_OUTPUT
 
+      - name: Create workflow key pair
+        id: create-keypair
+        run: |
+          ssh-keygen -t rsa -b 2048 -f /tmp/workflow-key -N ""
+          chmod 600 /tmp/workflow-key
+
+          KEY_NAME="aap-ondemand-$(date +%s)"
+          aws ec2 import-key-pair \
+            --key-name "$KEY_NAME" \
+            --public-key-material fileb:///tmp/workflow-key.pub
+
+          echo "Created workflow key pair: $KEY_NAME"
+          echo "key_name=$KEY_NAME" >> $GITHUB_OUTPUT
+
       - name: Launch EC2 instance
         id: launch
         run: |
@@ -312,16 +326,29 @@ jobs:
 
           echo "Launching AMI $AMI_ID for $OWNER (expires: $EXPIRES_AT)"
 
-          KEY_PAIR_ARG=""
-          if [ -n "${{ github.event.inputs.ssh_key_name }}" ]; then
-            KEY_PAIR_ARG="--key-name ${{ github.event.inputs.ssh_key_name }}"
+          USER_KEY="${{ github.event.inputs.ssh_key_name }}"
+          if [ -n "$USER_KEY" ]; then
+            USER_KEY_PUB=$(aws ec2 describe-key-pairs \
+              --key-names "$USER_KEY" \
+              --include-public-key \
+              --query 'KeyPairs[0].PublicKey' \
+              --output text 2>/dev/null || echo "")
+          fi
+
+          if [ -n "$USER_KEY_PUB" ] && [ "$USER_KEY_PUB" != "None" ]; then
+            printf '#cloud-config\nssh_authorized_keys:\n  - %s\n' "$USER_KEY_PUB" > /tmp/user-data.yml
+            USER_DATA_ARG="--user-data file:///tmp/user-data.yml"
+            echo "User SSH key will be injected via cloud-init"
+          else
+            USER_DATA_ARG=""
           fi
 
           INSTANCE_ID=$(aws ec2 run-instances \
             --image-id "$AMI_ID" \
             --instance-type "${{ github.event.inputs.instance_type }}" \
             --security-group-ids "${{ steps.create-sg.outputs.sg_id }}" \
-            $KEY_PAIR_ARG \
+            --key-name "${{ steps.create-keypair.outputs.key_name }}" \
+            $USER_DATA_ARG \
             --block-device-mappings '[{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":50,"VolumeType":"gp3","DeleteOnTermination":true}}]' \
             --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=aap-${VERSION}-${FLAVOR}-${OWNER}},{Key=owner,Value=${OWNER}},{Key=ExpiresAt,Value=${EXPIRES_AT}},{Key=Project,Value=aap-on-demand},{Key=AAPVersion,Value=${VERSION}},{Key=Flavor,Value=${FLAVOR}}]" \
             --associate-public-ip-address \
@@ -396,16 +423,7 @@ jobs:
           echo "Configuring Lightspeed with model: $MODEL_ID"
           echo "Will download fresh installer and re-run with Lightspeed enabled."
 
-          INSTANCE_ID="${{ steps.launch.outputs.instance_id }}"
-          INSTANCE_AZ=$(aws ec2 describe-instances \
-            --instance-ids "$INSTANCE_ID" \
-            --query 'Reservations[0].Instances[0].Placement.AvailabilityZone' \
-            --output text)
-
-          ssh-keygen -t rsa -b 2048 -f /tmp/lightspeed-key -N ""
-          chmod 600 /tmp/lightspeed-key
-
-          SSH_OPTS="-o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=120 -i /tmp/lightspeed-key"
+          SSH_OPTS="-o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=120 -i /tmp/workflow-key"
 
           cat > /tmp/setup-lightspeed.sh << 'SCRIPT_END'
           #!/bin/bash
@@ -519,24 +537,12 @@ jobs:
 
           chmod +x /tmp/setup-lightspeed.sh
 
-          echo "Pushing SSH key and uploading script..."
-          aws ec2-instance-connect send-ssh-public-key \
-            --instance-id "$INSTANCE_ID" \
-            --instance-os-user ec2-user \
-            --ssh-public-key file:///tmp/lightspeed-key.pub \
-            --availability-zone "$INSTANCE_AZ"
           scp $SSH_OPTS /tmp/setup-lightspeed.sh ec2-user@$PUBLIC_IP:/tmp/
 
-          echo "Pushing SSH key and running installer..."
-          aws ec2-instance-connect send-ssh-public-key \
-            --instance-id "$INSTANCE_ID" \
-            --instance-os-user ec2-user \
-            --ssh-public-key file:///tmp/lightspeed-key.pub \
-            --availability-zone "$INSTANCE_AZ"
           ssh $SSH_OPTS ec2-user@$PUBLIC_IP \
             "sudo bash /tmp/setup-lightspeed.sh '$INSTALLER_URL' '$ADMIN_PW' '$MODEL_URL' '$API_KEY' '$MODEL_ID' '$REGISTRY_USER' '$REGISTRY_PASS' '$BYOK_IMAGE' '$AAP_VERSION'"
 
-          rm -f /tmp/lightspeed-key /tmp/lightspeed-key.pub /tmp/setup-lightspeed.sh
+          rm -f /tmp/setup-lightspeed.sh
           echo "Lightspeed configuration complete."
 
       - name: Wait for AAP to be healthy
@@ -612,3 +618,13 @@ jobs:
 
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "This instance will be automatically eligible for cleanup after **$EXPIRES**." >> $GITHUB_STEP_SUMMARY
+
+      - name: Cleanup workflow key pair
+        if: always()
+        run: |
+          KEY_NAME="${{ steps.create-keypair.outputs.key_name }}"
+          if [ -n "$KEY_NAME" ] && [ "$KEY_NAME" != "null" ]; then
+            aws ec2 delete-key-pair --key-name "$KEY_NAME" || true
+            echo "Deleted workflow key pair: $KEY_NAME"
+          fi
+          rm -f /tmp/workflow-key /tmp/workflow-key.pub /tmp/user-data.yml
