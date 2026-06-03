@@ -1,0 +1,412 @@
+name: Launch AAP Instance (On-Demand)
+
+on:
+  workflow_dispatch:
+    inputs:
+      aap_version:
+        description: 'AAP Version'
+        required: true
+        type: choice
+        options:
+          - '2.7'
+          - '2.6'
+          - '2.5'
+        default: '2.7'
+      include_eda:
+        description: 'Include EDA Controller'
+        required: false
+        type: boolean
+        default: true
+      include_hub:
+        description: 'Include Automation Hub'
+        required: false
+        type: boolean
+        default: true
+      include_lightspeed:
+        description: 'Enable Intelligent Assistant (Lightspeed)'
+        required: false
+        type: boolean
+        default: false
+      lightspeed_model_url:
+        description: 'Lightspeed model endpoint URL'
+        required: false
+        type: string
+      lightspeed_model_name:
+        description: 'Lightspeed model name'
+        required: false
+        type: string
+      lightspeed_api_key:
+        description: 'Lightspeed model API key'
+        required: false
+        type: string
+      instance_type:
+        description: 'EC2 instance type'
+        required: false
+        type: choice
+        options:
+          - 'm5.2xlarge'
+          - 'm5.xlarge'
+          - 'm5.4xlarge'
+        default: 'm5.2xlarge'
+      ssh_key_name:
+        description: 'AWS key pair name for SSH access (optional)'
+        required: false
+        type: string
+      owner:
+        description: 'Your name or email (for Owner tag)'
+        required: true
+        type: string
+
+env:
+  PACKER_VERSION: "latest"
+  PACKER_FILE: ./images/packer/aap.pkr.hcl
+
+jobs:
+  authorize:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify user is a member of ansible-tmm org
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ACTOR="${{ github.actor }}"
+          echo "Checking org membership for $ACTOR..."
+
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: token $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/orgs/ansible-tmm/members/$ACTOR")
+
+          if [ "$HTTP_CODE" == "204" ]; then
+            echo "$ACTOR is a member of ansible-tmm"
+          else
+            echo "ERROR: $ACTOR is not a member of the ansible-tmm organization (HTTP $HTTP_CODE)"
+            echo "Only ansible-tmm org members can launch AAP instances."
+            exit 1
+          fi
+
+  find-or-build-ami:
+    needs: authorize
+    runs-on: ubuntu-latest
+    outputs:
+      ami_id: ${{ steps.find-ami.outputs.ami_id || steps.build-ami.outputs.ami_id }}
+      flavor: ${{ steps.set-flavor.outputs.flavor }}
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION || 'us-east-1' }}
+
+      - name: Determine flavor label
+        id: set-flavor
+        run: |
+          LABELS="c"
+
+          if [ "${{ github.event.inputs.include_eda }}" == "true" ]; then
+            LABELS="${LABELS}e"
+          fi
+
+          if [ "${{ github.event.inputs.include_hub }}" == "true" ]; then
+            LABELS="${LABELS}h"
+          fi
+
+          if [ "${{ github.event.inputs.aap_version }}" == "2.6" ] || [ "${{ github.event.inputs.aap_version }}" == "2.7" ]; then
+            LABELS="${LABELS}m"
+          fi
+
+          echo "flavor=$LABELS" >> $GITHUB_OUTPUT
+          echo "Flavor label: $LABELS"
+
+      - name: Search for existing AMI
+        id: find-ami
+        run: |
+          VERSION="${{ github.event.inputs.aap_version }}"
+          FLAVOR="${{ steps.set-flavor.outputs.flavor }}"
+          PATTERN="aap-${VERSION}*-${FLAVOR}-*"
+
+          echo "Searching for AMI matching: $PATTERN"
+
+          AMI_ID=$(aws ec2 describe-images \
+            --owners self \
+            --filters "Name=name,Values=${PATTERN}" \
+                      "Name=state,Values=available" \
+            --query 'Images | sort_by(@, &CreationDate) | [-1].ImageId' \
+            --output text)
+
+          if [ -n "$AMI_ID" ] && [ "$AMI_ID" != "None" ] && [ "$AMI_ID" != "null" ]; then
+            AMI_NAME=$(aws ec2 describe-images \
+              --image-ids "$AMI_ID" \
+              --query 'Images[0].Name' \
+              --output text)
+            echo "Found existing AMI: $AMI_ID ($AMI_NAME)"
+            echo "ami_id=$AMI_ID" >> $GITHUB_OUTPUT
+          else
+            echo "No existing AMI found matching $PATTERN"
+            echo "ami_id=" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Checkout repository
+        if: steps.find-ami.outputs.ami_id == ''
+        uses: actions/checkout@v4
+
+      - name: Set INSTALLER_URL for build
+        if: steps.find-ami.outputs.ami_id == ''
+        run: |
+          if [ "${{ github.event.inputs.aap_version }}" == "2.7" ]; then
+            INSTALLER_URL="${{ secrets.INSTALLER_URL_27 }}"
+          elif [ "${{ github.event.inputs.aap_version }}" == "2.6" ]; then
+            INSTALLER_URL="${{ secrets.INSTALLER_URL_26 }}"
+          else
+            INSTALLER_URL="${{ secrets.INSTALLER_URL_25 }}"
+          fi
+
+          if [ -z "$INSTALLER_URL" ]; then
+            echo "ERROR: No installer URL configured for AAP ${{ github.event.inputs.aap_version }}"
+            exit 1
+          fi
+
+          echo "INSTALLER_URL=$INSTALLER_URL" >> $GITHUB_ENV
+
+      - name: Set up Packer
+        if: steps.find-ami.outputs.ami_id == ''
+        uses: hashicorp/setup-packer@main
+        with:
+          version: ${{ env.PACKER_VERSION }}
+
+      - name: Run packer init
+        if: steps.find-ami.outputs.ami_id == ''
+        run: packer init ${{ env.PACKER_FILE }}
+
+      - name: Set build variables
+        if: steps.find-ami.outputs.ami_id == ''
+        run: |
+          FLAVOR="${{ steps.set-flavor.outputs.flavor }}"
+
+          echo "AAP_INCLUDE_CONTROLLER=true" >> $GITHUB_ENV
+
+          if [[ "$FLAVOR" == *"e"* ]]; then
+            echo "AAP_INCLUDE_EDA_CONTROLLER=true" >> $GITHUB_ENV
+          else
+            echo "AAP_INCLUDE_EDA_CONTROLLER=false" >> $GITHUB_ENV
+          fi
+
+          if [[ "$FLAVOR" == *"h"* ]]; then
+            echo "AAP_INCLUDE_AUTOMATION_HUB=true" >> $GITHUB_ENV
+          else
+            echo "AAP_INCLUDE_AUTOMATION_HUB=false" >> $GITHUB_ENV
+          fi
+
+          if [[ "$FLAVOR" == *"m"* ]]; then
+            echo "AAP_INCLUDE_MCP_SERVER=true" >> $GITHUB_ENV
+          else
+            echo "AAP_INCLUDE_MCP_SERVER=false" >> $GITHUB_ENV
+          fi
+
+      - name: Build AAP Image
+        if: steps.find-ami.outputs.ami_id == ''
+        id: build-packer
+        env:
+          INSTALLER_REGISTRY_USERNAME: ${{ secrets.INSTALLER_REGISTRY_USERNAME }}
+          INSTALLER_REGISTRY_PASSWORD: ${{ secrets.INSTALLER_REGISTRY_PASSWORD }}
+          INSTALLER_ADMIN_PW: ${{ secrets.INSTALLER_ADMIN_PW }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          RHEL_USER_PASSWORD: ${{ secrets.RHEL_USER_PASSWORD }}
+        run: |
+          packer build \
+            -var "aws_region=${{ secrets.AWS_REGION || 'us-east-1' }}" \
+            -var "aap_version=${{ github.event.inputs.aap_version }}" \
+            -var "aap_include_controller=true" \
+            -var "aap_include_eda_controller=${AAP_INCLUDE_EDA_CONTROLLER}" \
+            -var "aap_include_automation_hub=${AAP_INCLUDE_AUTOMATION_HUB}" \
+            -var "aap_include_mcp_server=${AAP_INCLUDE_MCP_SERVER}" \
+            -force ${{ env.PACKER_FILE }}
+
+      - name: Get built AMI ID
+        if: steps.find-ami.outputs.ami_id == ''
+        id: build-ami
+        run: |
+          AMI_ID=$(jq -r '.builds[0].artifact_id' manifest.json | cut -d: -f2)
+          echo "Built new AMI: $AMI_ID"
+          echo "ami_id=$AMI_ID" >> $GITHUB_OUTPUT
+
+  launch-instance:
+    needs: find-or-build-ami
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION || 'us-east-1' }}
+
+      - name: Create security group
+        id: create-sg
+        run: |
+          OWNER="${{ github.event.inputs.owner }}"
+          SG_NAME="aap-ondemand-${OWNER}-$(date +%s)"
+
+          SG_ID=$(aws ec2 create-security-group \
+            --group-name "$SG_NAME" \
+            --description "AAP on-demand instance for $OWNER" \
+            --tag-specifications "ResourceType=security-group,Tags=[{Key=Owner,Value=$OWNER},{Key=Project,Value=aap-on-demand}]" \
+            --query 'GroupId' \
+            --output text)
+
+          echo "Created security group: $SG_ID"
+
+          aws ec2 authorize-security-group-ingress \
+            --group-id $SG_ID \
+            --ip-permissions \
+              "IpProtocol=tcp,FromPort=22,ToPort=22,IpRanges=[{CidrIp=0.0.0.0/0,Description=SSH}]" \
+              "IpProtocol=tcp,FromPort=80,ToPort=80,IpRanges=[{CidrIp=0.0.0.0/0,Description=HTTP}]" \
+              "IpProtocol=tcp,FromPort=443,ToPort=443,IpRanges=[{CidrIp=0.0.0.0/0,Description=HTTPS}]"
+
+          echo "sg_id=$SG_ID" >> $GITHUB_OUTPUT
+
+      - name: Launch EC2 instance
+        id: launch
+        run: |
+          AMI_ID="${{ needs.find-or-build-ami.outputs.ami_id }}"
+          OWNER="${{ github.event.inputs.owner }}"
+          VERSION="${{ github.event.inputs.aap_version }}"
+          FLAVOR="${{ needs.find-or-build-ami.outputs.flavor }}"
+          EXPIRES_AT=$(date -u -d '+48 hours' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v+48H +%Y-%m-%dT%H:%M:%SZ)
+
+          echo "Launching AMI $AMI_ID for $OWNER (expires: $EXPIRES_AT)"
+
+          KEY_PAIR_ARG=""
+          if [ -n "${{ github.event.inputs.ssh_key_name }}" ]; then
+            KEY_PAIR_ARG="--key-name ${{ github.event.inputs.ssh_key_name }}"
+          fi
+
+          INSTANCE_ID=$(aws ec2 run-instances \
+            --image-id "$AMI_ID" \
+            --instance-type "${{ github.event.inputs.instance_type }}" \
+            --security-group-ids "${{ steps.create-sg.outputs.sg_id }}" \
+            $KEY_PAIR_ARG \
+            --block-device-mappings '[{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":50,"VolumeType":"gp3","DeleteOnTermination":true}}]' \
+            --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=aap-${VERSION}-${FLAVOR}-${OWNER}},{Key=Owner,Value=${OWNER}},{Key=ExpiresAt,Value=${EXPIRES_AT}},{Key=Project,Value=aap-on-demand},{Key=AAPVersion,Value=${VERSION}},{Key=Flavor,Value=${FLAVOR}}]" \
+            --associate-public-ip-address \
+            --query 'Instances[0].InstanceId' \
+            --output text)
+
+          echo "Launched instance: $INSTANCE_ID"
+          echo "instance_id=$INSTANCE_ID" >> $GITHUB_OUTPUT
+          echo "expires_at=$EXPIRES_AT" >> $GITHUB_OUTPUT
+
+      - name: Wait for instance to be running
+        run: |
+          INSTANCE_ID="${{ steps.launch.outputs.instance_id }}"
+          echo "Waiting for instance $INSTANCE_ID to be running..."
+          aws ec2 wait instance-running --instance-ids "$INSTANCE_ID"
+          echo "Instance is running"
+
+      - name: Get instance public IP
+        id: get-ip
+        run: |
+          INSTANCE_ID="${{ steps.launch.outputs.instance_id }}"
+          PUBLIC_IP=$(aws ec2 describe-instances \
+            --instance-ids "$INSTANCE_ID" \
+            --query 'Reservations[0].Instances[0].PublicIpAddress' \
+            --output text)
+
+          echo "Public IP: $PUBLIC_IP"
+          echo "public_ip=$PUBLIC_IP" >> $GITHUB_OUTPUT
+
+      - name: Wait for AAP to be healthy
+        run: |
+          PUBLIC_IP="${{ steps.get-ip.outputs.public_ip }}"
+          echo "Waiting for AAP to be healthy at https://$PUBLIC_IP ..."
+
+          for i in {1..60}; do
+            HTTP_CODE=$(curl -sk -o /dev/null -w "%{http_code}" \
+              "https://$PUBLIC_IP/api/gateway/v1/ping/" 2>/dev/null || echo "000")
+
+            if [ "$HTTP_CODE" == "200" ]; then
+              echo "AAP is healthy (attempt $i)"
+              break
+            fi
+
+            if [ $i -eq 60 ]; then
+              echo "WARNING: AAP did not become healthy after 10 minutes"
+              echo "The instance is running but AAP services may still be starting."
+              echo "Try accessing https://$PUBLIC_IP in a few minutes."
+            fi
+
+            echo "Attempt $i: HTTP $HTTP_CODE, waiting..."
+            sleep 10
+          done
+
+      - name: Update TOWER_URL_BASE to public IP
+        run: |
+          PUBLIC_IP="${{ steps.get-ip.outputs.public_ip }}"
+
+          curl -sk -X PATCH \
+            -H "Content-Type: application/json" \
+            -u "admin:${{ secrets.INSTALLER_ADMIN_PW }}" \
+            "https://$PUBLIC_IP/api/controller/v2/settings/system/" \
+            -d "{\"TOWER_URL_BASE\": \"https://$PUBLIC_IP\"}" || echo "Failed to update TOWER_URL_BASE, may need manual configuration"
+
+      - name: Configure Lightspeed
+        if: github.event.inputs.include_lightspeed == 'true'
+        run: |
+          PUBLIC_IP="${{ steps.get-ip.outputs.public_ip }}"
+          MODEL_URL="${{ github.event.inputs.lightspeed_model_url }}"
+          MODEL_NAME="${{ github.event.inputs.lightspeed_model_name }}"
+          API_KEY="${{ github.event.inputs.lightspeed_api_key }}"
+
+          if [ -z "$MODEL_URL" ] || [ -z "$MODEL_NAME" ] || [ -z "$API_KEY" ]; then
+            echo "WARNING: Lightspeed enabled but model URL, name, or API key not provided."
+            echo "You will need to configure Lightspeed manually in the AAP UI."
+          else
+            echo "Configuring Lightspeed with model: $MODEL_NAME"
+            echo "Lightspeed configuration via API is version-dependent."
+            echo "Please configure Lightspeed manually in the AAP UI:"
+            echo "  Settings > Ansible Lightspeed"
+            echo "  Model URL: $MODEL_URL"
+            echo "  Model Name: $MODEL_NAME"
+            echo "  API Key: (provided)"
+          fi
+
+      - name: Generate build summary
+        run: |
+          PUBLIC_IP="${{ steps.get-ip.outputs.public_ip }}"
+          INSTANCE_ID="${{ steps.launch.outputs.instance_id }}"
+          OWNER="${{ github.event.inputs.owner }}"
+          VERSION="${{ github.event.inputs.aap_version }}"
+          FLAVOR="${{ needs.find-or-build-ami.outputs.flavor }}"
+          EXPIRES="${{ steps.launch.outputs.expires_at }}"
+
+          echo "## AAP Instance Launched" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Detail | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| **AAP URL** | https://$PUBLIC_IP |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Instance ID** | $INSTANCE_ID |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Public IP** | $PUBLIC_IP |" >> $GITHUB_STEP_SUMMARY
+          echo "| **AAP Version** | $VERSION |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Flavor** | $FLAVOR |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Instance Type** | ${{ github.event.inputs.instance_type }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Owner** | $OWNER |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Expires** | $EXPIRES |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Admin User** | admin |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Components" >> $GITHUB_STEP_SUMMARY
+          echo "- Controller: Yes" >> $GITHUB_STEP_SUMMARY
+          echo "- EDA: ${{ github.event.inputs.include_eda }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Hub: ${{ github.event.inputs.include_hub }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Lightspeed: ${{ github.event.inputs.include_lightspeed }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ -n "${{ github.event.inputs.ssh_key_name }}" ]; then
+            echo "### SSH Access" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "ssh -i <your-private-key> ec2-user@$PUBLIC_IP" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "This instance will be automatically eligible for cleanup after **$EXPIRES**." >> $GITHUB_STEP_SUMMARY
