@@ -393,30 +393,33 @@ jobs:
             sleep 10
           done
 
-      - name: Configure Lightspeed via installer re-run
+      - name: Mask sensitive Lightspeed inputs
         if: github.event.inputs.include_lightspeed == 'true'
         run: |
-          PUBLIC_IP="${{ steps.get-ip.outputs.public_ip }}"
-          VERSION="${{ github.event.inputs.aap_version }}"
-          MODEL_URL="${{ github.event.inputs.lightspeed_model_url }}"
-          MODEL_ID="${{ github.event.inputs.lightspeed_model_id }}"
-          API_KEY="${{ github.event.inputs.lightspeed_api_key }}"
-          BYOK_IMAGE="${{ github.event.inputs.lightspeed_byok_image }}"
-          AAP_VERSION="${{ github.event.inputs.aap_version }}"
-          ADMIN_PW="${{ secrets.INSTALLER_ADMIN_PW }}"
+          echo "::add-mask::${{ github.event.inputs.lightspeed_model_url }}"
+          echo "::add-mask::${{ github.event.inputs.lightspeed_api_key }}"
+          echo "::add-mask::${{ github.event.inputs.lightspeed_byok_image }}"
 
-          echo "::add-mask::$MODEL_URL"
-          echo "::add-mask::$API_KEY"
-          echo "::add-mask::$ADMIN_PW"
-          if [ "${{ github.event.inputs.aap_version }}" == "2.7" ]; then
+      - name: Configure Lightspeed via installer re-run
+        if: github.event.inputs.include_lightspeed == 'true'
+        env:
+          MODEL_URL: ${{ github.event.inputs.lightspeed_model_url }}
+          MODEL_ID: ${{ github.event.inputs.lightspeed_model_id }}
+          API_KEY: ${{ github.event.inputs.lightspeed_api_key }}
+          BYOK_IMAGE: ${{ github.event.inputs.lightspeed_byok_image }}
+          ADMIN_PW: ${{ secrets.INSTALLER_ADMIN_PW }}
+          INSTALLER_REGISTRY_USER: ${{ secrets.INSTALLER_REGISTRY_USERNAME }}
+          INSTALLER_REGISTRY_PASS: ${{ secrets.INSTALLER_REGISTRY_PASSWORD }}
+        run: |
+          PUBLIC_IP="${{ steps.get-ip.outputs.public_ip }}"
+          AAP_VERSION="${{ github.event.inputs.aap_version }}"
+          if [ "$AAP_VERSION" == "2.7" ]; then
             INSTALLER_URL="${{ secrets.INSTALLER_URL_27 }}"
-          elif [ "${{ github.event.inputs.aap_version }}" == "2.6" ]; then
+          elif [ "$AAP_VERSION" == "2.6" ]; then
             INSTALLER_URL="${{ secrets.INSTALLER_URL_26 }}"
           else
             INSTALLER_URL="${{ secrets.INSTALLER_URL_25 }}"
           fi
-          REGISTRY_USER="${{ secrets.INSTALLER_REGISTRY_USERNAME }}"
-          REGISTRY_PASS="${{ secrets.INSTALLER_REGISTRY_PASSWORD }}"
 
           if [ -z "$MODEL_URL" ] || [ -z "$MODEL_ID" ] || [ -z "$API_KEY" ]; then
             echo "WARNING: Lightspeed enabled but model URL, ID, or API key not provided."
@@ -535,6 +538,11 @@ jobs:
 
           echo "Inventory generated (sensitive values hidden)"
 
+          if [ -n "$BYOK_IMAGE" ] && [ "$AAP_VERSION" == "2.7" ]; then
+            echo "Pulling BYOK image: $BYOK_IMAGE"
+            sudo -u rhel podman pull "$BYOK_IMAGE"
+          fi
+
           chown -R rhel:rhel "$INSTALLER_DIR"
 
           echo "Re-running AAP installer with Lightspeed..."
@@ -551,7 +559,7 @@ jobs:
           scp $SSH_OPTS /tmp/setup-lightspeed.sh ec2-user@$PUBLIC_IP:/tmp/
 
           ssh $SSH_OPTS ec2-user@$PUBLIC_IP \
-            "sudo bash /tmp/setup-lightspeed.sh '$INSTALLER_URL' '$ADMIN_PW' '$MODEL_URL' '$API_KEY' '$MODEL_ID' '$REGISTRY_USER' '$REGISTRY_PASS' '$BYOK_IMAGE' '$AAP_VERSION'"
+            "sudo bash /tmp/setup-lightspeed.sh '$INSTALLER_URL' '$ADMIN_PW' '$MODEL_URL' '$API_KEY' '$MODEL_ID' '$INSTALLER_REGISTRY_USER' '$INSTALLER_REGISTRY_PASS' '$BYOK_IMAGE' '$AAP_VERSION'"
 
           rm -f /tmp/setup-lightspeed.sh
           echo "Lightspeed configuration complete."
