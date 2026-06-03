@@ -451,43 +451,7 @@ jobs:
           echo "qcow2 image available at: s3://$S3_BUCKET/$QCOW2_S3_KEY"
           echo "s3_url=s3://$S3_BUCKET/$QCOW2_S3_KEY" >> $GITHUB_OUTPUT
 
-      - name: Cleanup AWS resources
-        if: always()
-        run: |
-          AMI_ID="${{ steps.get-ami.outputs.ami_id }}"
-
-          if [ -n "$AMI_ID" ] && [ "$AMI_ID" != "null" ]; then
-            echo "Cleaning up AWS resources for AMI: $AMI_ID"
-            
-            # Get snapshot IDs associated with the AMI
-            SNAPSHOT_IDS=$(aws ec2 describe-images \
-              --image-ids "$AMI_ID" \
-              --query 'Images[0].BlockDeviceMappings[*].Ebs.SnapshotId' \
-              --output text \
-              --region ${{ secrets.AWS_REGION || 'us-east-1' }} || echo "")
-            
-            # Deregister the AMI
-            echo "Deregistering AMI: $AMI_ID"
-            aws ec2 deregister-image \
-              --image-id "$AMI_ID" \
-              --region ${{ secrets.AWS_REGION || 'us-east-1' }} || echo "Failed to deregister AMI"
-            
-            # Delete associated snapshots
-            if [ -n "$SNAPSHOT_IDS" ] && [ "$SNAPSHOT_IDS" != "None" ]; then
-              for SNAPSHOT_ID in $SNAPSHOT_IDS; do
-                if [ "$SNAPSHOT_ID" != "None" ]; then
-                  echo "Deleting snapshot: $SNAPSHOT_ID"
-                  aws ec2 delete-snapshot \
-                    --snapshot-id "$SNAPSHOT_ID" \
-                    --region ${{ secrets.AWS_REGION || 'us-east-1' }} || echo "Failed to delete snapshot $SNAPSHOT_ID"
-                fi
-              done
-            fi
-
-            echo "AWS cleanup completed"
-          else
-            echo "No AMI to cleanup"
-          fi
+      # AMI is kept (private to this AWS account) for use by the launch workflow
 
       - name: Generate build summary
         if: success()
