@@ -39,6 +39,10 @@ on:
         description: 'Lightspeed model API key'
         required: false
         type: string
+      lightspeed_byok_image:
+        description: 'BYOK custom knowledge image URL (2.7+ only, optional)'
+        required: false
+        type: string
       instance_type:
         description: 'EC2 instance type'
         required: false
@@ -389,6 +393,8 @@ jobs:
           MODEL_URL="${{ github.event.inputs.lightspeed_model_url }}"
           MODEL_ID="${{ github.event.inputs.lightspeed_model_id }}"
           API_KEY="${{ github.event.inputs.lightspeed_api_key }}"
+          BYOK_IMAGE="${{ github.event.inputs.lightspeed_byok_image }}"
+          AAP_VERSION="${{ github.event.inputs.aap_version }}"
           ADMIN_PW="${{ secrets.INSTALLER_ADMIN_PW }}"
           if [ "${{ github.event.inputs.aap_version }}" == "2.7" ]; then
             INSTALLER_URL="${{ secrets.INSTALLER_URL_27 }}"
@@ -437,6 +443,8 @@ jobs:
           MODEL_ID="$5"
           REGISTRY_USER="$6"
           REGISTRY_PASS="$7"
+          BYOK_IMAGE="$8"
+          AAP_VERSION="$9"
           HOSTNAME=$(hostname)
           INSTALLER_DIR="/tmp/ansible-automation-platform-containerized-setup"
 
@@ -513,7 +521,13 @@ jobs:
           lightspeed_chatbot_model_id=${MODEL_ID}
 
           mcp_allow_write_operations=true
+          FEATURE_DASHBOARD_COLLECTION_ENABLED=true
           INV
+
+          if [ -n "$BYOK_IMAGE" ] && [ "$AAP_VERSION" == "2.7" ]; then
+            printf 'lightspeed_chatbot_byok_image=%s\n' "$BYOK_IMAGE" >> "$INSTALLER_DIR/inventory.custom"
+            echo "BYOK image configured: $BYOK_IMAGE"
+          fi
 
           echo "Inventory:"
           cat "$INSTALLER_DIR/inventory.custom"
@@ -534,7 +548,7 @@ jobs:
           scp $SSH_OPTS /tmp/setup-lightspeed.sh ec2-user@$PUBLIC_IP:/tmp/
 
           ssh $SSH_OPTS ec2-user@$PUBLIC_IP \
-            "sudo bash /tmp/setup-lightspeed.sh '$INSTALLER_URL' '$ADMIN_PW' '$MODEL_URL' '$API_KEY' '$MODEL_ID' '$REGISTRY_USER' '$REGISTRY_PASS'"
+            "sudo bash /tmp/setup-lightspeed.sh '$INSTALLER_URL' '$ADMIN_PW' '$MODEL_URL' '$API_KEY' '$MODEL_ID' '$REGISTRY_USER' '$REGISTRY_PASS' '$BYOK_IMAGE' '$AAP_VERSION'"
 
           rm -f /tmp/lightspeed-key /tmp/lightspeed-key.pub /tmp/setup-lightspeed.sh
           echo "Lightspeed configuration complete."
