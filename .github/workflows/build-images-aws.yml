@@ -74,16 +74,47 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION || 'us-east-1' }}
 
+      - name: Check for existing raw image from today
+        id: check-raw
+        env:
+          AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
+        run: |
+          S3_BUCKET="${{ secrets.S3_BUCKET_NAME || 'aap-qcow2-images' }}"
+          FLAVOR_LOWER=$(echo "${{ matrix.flavor }}" | tr '[:upper:]' '[:lower:]')
+          S3_PREFIX="aap-images/$FLAVOR_LOWER/"
+          TODAY=$(date -u +%Y-%m-%d)
+
+          echo "Checking for existing raw image in s3://$S3_BUCKET/$S3_PREFIX from $TODAY..."
+
+          RAW_KEY=$(aws s3api list-objects-v2 \
+            --bucket "$S3_BUCKET" \
+            --prefix "$S3_PREFIX" \
+            --query "Contents[?contains(Key, '.raw') && contains(to_string(LastModified), '${TODAY}')].Key | [0]" \
+            --output text 2>/dev/null || echo "None")
+
+          if [ -n "$RAW_KEY" ] && [ "$RAW_KEY" != "None" ] && [ "$RAW_KEY" != "null" ]; then
+            echo "Found existing raw image from today: $RAW_KEY"
+            echo "raw_exists=true" >> $GITHUB_OUTPUT
+            echo "raw_s3_key=$RAW_KEY" >> $GITHUB_OUTPUT
+            echo "raw_s3_bucket=$S3_BUCKET" >> $GITHUB_OUTPUT
+          else
+            echo "No existing raw image found for today, full build required"
+            echo "raw_exists=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Set up Packer
+        if: steps.check-raw.outputs.raw_exists != 'true'
         uses: hashicorp/setup-packer@main
         with:
           version: ${{ env.PACKER_VERSION }}
 
       - name: Run `packer init`
+        if: steps.check-raw.outputs.raw_exists != 'true'
         id: init
         run: "packer init ${{ env.PACKER_FILE }}"
 
       - name: Run `packer validate`
+        if: steps.check-raw.outputs.raw_exists != 'true'
         id: validate
         run: "packer validate ${{ env.PACKER_FILE }}"
 
@@ -120,6 +151,7 @@ jobs:
           echo "AAP_INCLUDE_MCP_SERVER=${AAP_INCLUDE_MCP_SERVER}" >> $GITHUB_ENV
 
       - name: Build AAP Image
+        if: steps.check-raw.outputs.raw_exists != 'true'
         run: |
           echo "AWS_DEFAULT_REGION: $AWS_DEFAULT_REGION"
           echo "AWS_REGION: $AWS_REGION"
@@ -134,6 +166,7 @@ jobs:
             -force ${{ env.PACKER_FILE }}
 
       - name: Get AMI ID and rename with version
+        if: steps.check-raw.outputs.raw_exists != 'true'
         id: get-ami
         run: |
           # Get the temporary AMI ID
@@ -184,7 +217,8 @@ jobs:
           echo "final_name=$FINAL_NAME" >> $GITHUB_OUTPUT
           echo "Final AMI ready: $NEW_AMI_ID ($FINAL_NAME)"
 
-      - name: Export AMI to S3 as qcow2
+      - name: Export AMI to S3 as raw
+        if: steps.check-raw.outputs.raw_exists != 'true'
         id: export-ami
         env:
           AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
@@ -212,16 +246,16 @@ jobs:
           echo "Started export task: $EXPORT_TASK_ID"
 
       - name: Wait for export completion
+        if: steps.check-raw.outputs.raw_exists != 'true'
         id: wait-export
         run: |
           EXPORT_TASK_ID="${{ steps.export-ami.outputs.export_task_id }}"
           echo "Monitoring export task: $EXPORT_TASK_ID"
-          
-          # Wait for export to complete (timeout after 2 hours)
+
           TIMEOUT=7200
           ELAPSED=0
           INTERVAL=60
-          
+
           while [ $ELAPSED -lt $TIMEOUT ]; do
             STATUS=$(aws ec2 describe-export-image-tasks \
               --export-image-task-ids "$EXPORT_TASK_ID" \
@@ -242,8 +276,12 @@ jobs:
             if [ -n "$STATUS_MESSAGE" ] && [ "$STATUS_MESSAGE" != "None" ]; then
               echo "Status message: $STATUS_MESSAGE"
             fi
-            
+
             if [ "$STATUS" = "completed" ]; then
+              S3_KEY=$(aws ec2 describe-export-image-tasks \
+                --export-image-task-ids "$EXPORT_TASK_ID" \
+                --query 'ExportImageTasks[0].S3ExportLocation.S3Key' \
+                --output text)
               S3_BUCKET=$(aws ec2 describe-export-image-tasks \
                 --export-image-task-ids "$EXPORT_TASK_ID" \
                 --query 'ExportImageTasks[0].S3ExportLocation.S3Bucket' \
@@ -252,158 +290,14 @@ jobs:
                 --export-image-task-ids "$EXPORT_TASK_ID" \
                 --query 'ExportImageTasks[0].S3ExportLocation.S3Prefix' \
                 --output text)
-              S3_KEY=$(aws ec2 describe-export-image-tasks \
-                --export-image-task-ids "$EXPORT_TASK_ID" \
-                --query 'ExportImageTasks[0].S3ExportLocation.S3Key' \
-                --output text)
 
-              # Fallback: If S3_KEY is None or empty, construct it from S3_PREFIX and EXPORT_TASK_ID
               if [ -z "$S3_KEY" ] || [ "$S3_KEY" = "None" ]; then
-                echo "S3Key not returned by API, constructing from prefix and task ID..."
                 S3_KEY="${S3_PREFIX}${EXPORT_TASK_ID}.raw"
               fi
 
               echo "Raw image export completed!"
-              echo "Raw image available at: s3://$S3_BUCKET/$S3_KEY"
-              
-              # Convert RAW to qcow2 using temporary EC2 instance
-              echo "Converting raw image to qcow2 format using temporary EC2 instance..."
-
-              RAW_FILE=$(basename "$S3_KEY")
-              AMI_NAME="${{ steps.get-ami.outputs.final_name }}"
-              QCOW2_FILE="${AMI_NAME}.qcow2"
-              FLAVOR_LOWER=$(echo "${{ matrix.flavor }}" | tr '[:upper:]' '[:lower:]')
-              QCOW2_S3_KEY="aap-images/$FLAVOR_LOWER/${QCOW2_FILE}"
-
-              echo "Will create qcow2: $QCOW2_FILE"
-
-              # Create temporary SSH key
-              ssh-keygen -t rsa -b 2048 -f /tmp/converter-key -N ""
-              chmod 600 /tmp/converter-key
-
-              # Create temporary security group allowing SSH
-              TEMP_SG_ID=$(aws ec2 create-security-group \
-                --group-name "qcow2-converter-$(date +%s)" \
-                --description "Temporary SG for qcow2 conversion" \
-                --query 'GroupId' \
-                --output text)
-
-              echo "Created security group: $TEMP_SG_ID"
-
-              # Add SSH ingress rule
-              aws ec2 authorize-security-group-ingress \
-                --group-id $TEMP_SG_ID \
-                --protocol tcp \
-                --port 22 \
-                --cidr 0.0.0.0/0
-
-              # Import SSH key
-              KEY_NAME="converter-$(date +%s)"
-              aws ec2 import-key-pair \
-                --key-name $KEY_NAME \
-                --public-key-material fileb:///tmp/converter-key.pub
-
-              # Get latest RHEL 9 AMI
-              CONVERTER_AMI=$(aws ec2 describe-images \
-                --owners 309956199498 \
-                --filters "Name=name,Values=RHEL-9*_HVM-*-x86_64-*-GP*" \
-                          "Name=state,Values=available" \
-                --query 'Images | sort_by(@, &CreationDate) | [-1].ImageId' \
-                --output text)
-
-              echo "Using AMI: $CONVERTER_AMI"
-
-              # Create user-data script (avoiding heredoc to prevent YAML parsing issues)
-              printf '%s\n' '#!/bin/bash' 'set -x' 'exec > /var/log/user-data.log 2>&1' 'yum install -y qemu-img awscli' > /tmp/user-data.sh
-
-              # Launch instance with 100GB root volume
-              CONVERTER_INSTANCE=$(aws ec2 run-instances \
-                --image-id $CONVERTER_AMI \
-                --instance-type t3.xlarge \
-                --key-name $KEY_NAME \
-                --security-group-ids $TEMP_SG_ID \
-                --block-device-mappings '[{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":100,"VolumeType":"gp3","DeleteOnTermination":true}}]' \
-                --user-data file:///tmp/user-data.sh \
-                --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=qcow2-converter},{Key=Purpose,Value=temporary}]" \
-                --query 'Instances[0].InstanceId' \
-                --output text)
-
-              echo "Launched converter instance: $CONVERTER_INSTANCE"
-
-              # Wait for instance to be running
-              echo "Waiting for instance to be running..."
-              aws ec2 wait instance-running --instance-ids $CONVERTER_INSTANCE
-
-              # Get public IP
-              PUBLIC_IP=$(aws ec2 describe-instances \
-                --instance-ids $CONVERTER_INSTANCE \
-                --query 'Reservations[0].Instances[0].PublicIpAddress' \
-                --output text)
-              echo "Instance IP: $PUBLIC_IP"
-
-              # Wait for SSH to be ready
-              echo "Waiting for SSH to be ready..."
-              for i in {1..30}; do
-                if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -i /tmp/converter-key ec2-user@$PUBLIC_IP "echo SSH ready" 2>/dev/null; then
-                  echo "SSH is ready"
-                  break
-                fi
-                if [ $i -eq 30 ]; then
-                  echo "ERROR: SSH did not become ready in time"
-                  aws ec2 terminate-instances --instance-ids $CONVERTER_INSTANCE
-                  aws ec2 delete-key-pair --key-name $KEY_NAME
-                  sleep 30
-                  aws ec2 delete-security-group --group-id $TEMP_SG_ID || true
-                  exit 1
-                fi
-                sleep 10
-              done
-
-              # Wait for tools to be installed
-              echo "Waiting for qemu-img and aws-cli installation..."
-              for i in {1..30}; do
-                if ssh -o StrictHostKeyChecking=no -i /tmp/converter-key ec2-user@$PUBLIC_IP "command -v qemu-img && command -v aws" 2>/dev/null; then
-                  echo "Tools are installed"
-                  break
-                fi
-                if [ $i -eq 30 ]; then
-                  echo "ERROR: Tools did not install in time"
-                  aws ec2 terminate-instances --instance-ids $CONVERTER_INSTANCE
-                  aws ec2 delete-key-pair --key-name $KEY_NAME
-                  sleep 30
-                  aws ec2 delete-security-group --group-id $TEMP_SG_ID || true
-                  exit 1
-                fi
-                sleep 10
-              done
-
-              # Run conversion via SSH with keep-alive to prevent timeout during long conversion
-              echo "Running qcow2 conversion (this may take 10-15 minutes)..."
-              ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=240 -o TCPKeepAlive=yes -i /tmp/converter-key ec2-user@$PUBLIC_IP "export AWS_ACCESS_KEY_ID='$AWS_ACCESS_KEY_ID' && export AWS_SECRET_ACCESS_KEY='$AWS_SECRET_ACCESS_KEY' && export AWS_DEFAULT_REGION='$AWS_DEFAULT_REGION' && echo 'Downloading raw image...' && aws s3 cp s3://$S3_BUCKET/$S3_KEY /tmp/$RAW_FILE --no-progress && echo 'Converting to qcow2...' && qemu-img convert -f raw -O qcow2 -c /tmp/$RAW_FILE /tmp/$QCOW2_FILE && echo 'Removing raw file...' && rm -f /tmp/$RAW_FILE && echo 'Uploading qcow2...' && aws s3 cp /tmp/$QCOW2_FILE s3://$S3_BUCKET/$QCOW2_S3_KEY --no-progress && echo 'Cleanup complete' && rm -f /tmp/$QCOW2_FILE"
-
-              # Cleanup: Terminate instance
-              echo "Terminating converter instance..."
-              aws ec2 terminate-instances --instance-ids $CONVERTER_INSTANCE
-
-              # Wait for termination
-              aws ec2 wait instance-terminated --instance-ids $CONVERTER_INSTANCE
-
-              # Delete SSH key
-              aws ec2 delete-key-pair --key-name $KEY_NAME
-              rm -f /tmp/converter-key /tmp/converter-key.pub /tmp/user-data.sh
-
-              # Delete security group
-              echo "Deleting security group..."
-              sleep 30
-              aws ec2 delete-security-group --group-id $TEMP_SG_ID || echo "Security group cleanup will happen automatically"
-
-              # Delete the raw file from S3 (keep only qcow2)
-              echo "Deleting raw file from S3..."
-              aws s3 rm "s3://$S3_BUCKET/$S3_KEY"
-
-              echo "Conversion completed!"
-              echo "qcow2 image available at: s3://$S3_BUCKET/$QCOW2_S3_KEY"
-              echo "s3_url=s3://$S3_BUCKET/$QCOW2_S3_KEY" >> $GITHUB_OUTPUT
+              echo "raw_s3_key=$S3_KEY" >> $GITHUB_OUTPUT
+              echo "raw_s3_bucket=$S3_BUCKET" >> $GITHUB_OUTPUT
               break
             elif [ "$STATUS" = "cancelled" ] || [ "$STATUS" = "cancelling" ]; then
               echo "ERROR: Export was cancelled"
@@ -413,24 +307,149 @@ jobs:
               aws ec2 describe-export-image-tasks --export-image-task-ids "$EXPORT_TASK_ID"
               exit 1
             fi
-            
+
             sleep $INTERVAL
             ELAPSED=$((ELAPSED + INTERVAL))
           done
-          
+
           if [ $ELAPSED -ge $TIMEOUT ]; then
             echo "ERROR: Export timed out after 2 hours"
             exit 1
           fi
 
-      - name: Set qcow2 output URL
-        id: rename-qcow2
-        if: success()
+      - name: Convert raw image to qcow2
+        id: convert-qcow2
+        env:
+          AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
         run: |
-          # The qcow2 file is already created with the correct versioned name, just output the URL
-          S3_URL="${{ steps.wait-export.outputs.s3_url }}"
-          echo "Final qcow2 image: $S3_URL"
-          echo "versioned_s3_url=$S3_URL" >> $GITHUB_OUTPUT
+          if [ "${{ steps.check-raw.outputs.raw_exists }}" == "true" ]; then
+            S3_BUCKET="${{ steps.check-raw.outputs.raw_s3_bucket }}"
+            S3_KEY="${{ steps.check-raw.outputs.raw_s3_key }}"
+            echo "Using existing raw image from today: s3://$S3_BUCKET/$S3_KEY"
+          else
+            S3_BUCKET="${{ steps.wait-export.outputs.raw_s3_bucket }}"
+            S3_KEY="${{ steps.wait-export.outputs.raw_s3_key }}"
+            echo "Using freshly exported raw image: s3://$S3_BUCKET/$S3_KEY"
+          fi
+
+          RAW_FILE=$(basename "$S3_KEY")
+          FLAVOR_LOWER=$(echo "${{ matrix.flavor }}" | tr '[:upper:]' '[:lower:]')
+
+          if [ -n "${{ steps.get-ami.outputs.final_name }}" ]; then
+            QCOW2_FILE="${{ steps.get-ami.outputs.final_name }}.qcow2"
+          else
+            QCOW2_FILE="aap-${{ github.event.inputs.aap_version }}-${FLAVOR_LOWER}-$(date +%Y%m%d).qcow2"
+          fi
+
+          QCOW2_S3_KEY="aap-images/$FLAVOR_LOWER/${QCOW2_FILE}"
+          echo "Will create qcow2: $QCOW2_FILE"
+
+          ssh-keygen -t rsa -b 2048 -f /tmp/converter-key -N ""
+          chmod 600 /tmp/converter-key
+
+          TEMP_SG_ID=$(aws ec2 create-security-group \
+            --group-name "qcow2-converter-$(date +%s)" \
+            --description "Temporary SG for qcow2 conversion" \
+            --query 'GroupId' \
+            --output text)
+          echo "Created security group: $TEMP_SG_ID"
+
+          aws ec2 authorize-security-group-ingress \
+            --group-id $TEMP_SG_ID \
+            --protocol tcp \
+            --port 22 \
+            --cidr 0.0.0.0/0
+
+          KEY_NAME="converter-$(date +%s)"
+          aws ec2 import-key-pair \
+            --key-name $KEY_NAME \
+            --public-key-material fileb:///tmp/converter-key.pub
+
+          CONVERTER_AMI=$(aws ec2 describe-images \
+            --owners 309956199498 \
+            --filters "Name=name,Values=RHEL-9*_HVM-*-x86_64-*-GP*" \
+                      "Name=state,Values=available" \
+            --query 'Images | sort_by(@, &CreationDate) | [-1].ImageId' \
+            --output text)
+          echo "Using AMI: $CONVERTER_AMI"
+
+          printf '%s\n' '#!/bin/bash' 'set -x' 'exec > /var/log/user-data.log 2>&1' 'yum install -y qemu-img awscli' > /tmp/user-data.sh
+
+          CONVERTER_INSTANCE=$(aws ec2 run-instances \
+            --image-id $CONVERTER_AMI \
+            --instance-type t3.xlarge \
+            --key-name $KEY_NAME \
+            --security-group-ids $TEMP_SG_ID \
+            --block-device-mappings '[{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":100,"VolumeType":"gp3","DeleteOnTermination":true}}]' \
+            --user-data file:///tmp/user-data.sh \
+            --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=qcow2-converter},{Key=Purpose,Value=temporary}]" \
+            --query 'Instances[0].InstanceId' \
+            --output text)
+          echo "Launched converter instance: $CONVERTER_INSTANCE"
+
+          echo "Waiting for instance to be running..."
+          aws ec2 wait instance-running --instance-ids $CONVERTER_INSTANCE
+
+          PUBLIC_IP=$(aws ec2 describe-instances \
+            --instance-ids $CONVERTER_INSTANCE \
+            --query 'Reservations[0].Instances[0].PublicIpAddress' \
+            --output text)
+          echo "Instance IP: $PUBLIC_IP"
+
+          echo "Waiting for SSH to be ready..."
+          for i in {1..30}; do
+            if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -i /tmp/converter-key ec2-user@$PUBLIC_IP "echo SSH ready" 2>/dev/null; then
+              echo "SSH is ready"
+              break
+            fi
+            if [ $i -eq 30 ]; then
+              echo "ERROR: SSH did not become ready in time"
+              aws ec2 terminate-instances --instance-ids $CONVERTER_INSTANCE
+              aws ec2 delete-key-pair --key-name $KEY_NAME
+              sleep 30
+              aws ec2 delete-security-group --group-id $TEMP_SG_ID || true
+              exit 1
+            fi
+            sleep 10
+          done
+
+          echo "Waiting for qemu-img and aws-cli installation..."
+          for i in {1..30}; do
+            if ssh -o StrictHostKeyChecking=no -i /tmp/converter-key ec2-user@$PUBLIC_IP "command -v qemu-img && command -v aws" 2>/dev/null; then
+              echo "Tools are installed"
+              break
+            fi
+            if [ $i -eq 30 ]; then
+              echo "ERROR: Tools did not install in time"
+              aws ec2 terminate-instances --instance-ids $CONVERTER_INSTANCE
+              aws ec2 delete-key-pair --key-name $KEY_NAME
+              sleep 30
+              aws ec2 delete-security-group --group-id $TEMP_SG_ID || true
+              exit 1
+            fi
+            sleep 10
+          done
+
+          echo "Running qcow2 conversion (this may take 10-15 minutes)..."
+          ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=240 -o TCPKeepAlive=yes -i /tmp/converter-key ec2-user@$PUBLIC_IP "export AWS_ACCESS_KEY_ID='$AWS_ACCESS_KEY_ID' && export AWS_SECRET_ACCESS_KEY='$AWS_SECRET_ACCESS_KEY' && export AWS_DEFAULT_REGION='$AWS_DEFAULT_REGION' && echo 'Downloading raw image...' && aws s3 cp s3://$S3_BUCKET/$S3_KEY /tmp/$RAW_FILE --no-progress && echo 'Converting to qcow2...' && qemu-img convert -f raw -O qcow2 -c /tmp/$RAW_FILE /tmp/$QCOW2_FILE && echo 'Removing raw file...' && rm -f /tmp/$RAW_FILE && echo 'Uploading qcow2...' && aws s3 cp /tmp/$QCOW2_FILE s3://$S3_BUCKET/$QCOW2_S3_KEY --no-progress && echo 'Cleanup complete' && rm -f /tmp/$QCOW2_FILE"
+
+          echo "Terminating converter instance..."
+          aws ec2 terminate-instances --instance-ids $CONVERTER_INSTANCE
+          aws ec2 wait instance-terminated --instance-ids $CONVERTER_INSTANCE
+
+          aws ec2 delete-key-pair --key-name $KEY_NAME
+          rm -f /tmp/converter-key /tmp/converter-key.pub /tmp/user-data.sh
+
+          echo "Deleting security group..."
+          sleep 30
+          aws ec2 delete-security-group --group-id $TEMP_SG_ID || echo "Security group cleanup will happen automatically"
+
+          echo "Deleting raw file from S3..."
+          aws s3 rm "s3://$S3_BUCKET/$S3_KEY"
+
+          echo "Conversion completed!"
+          echo "qcow2 image available at: s3://$S3_BUCKET/$QCOW2_S3_KEY"
+          echo "s3_url=s3://$S3_BUCKET/$QCOW2_S3_KEY" >> $GITHUB_OUTPUT
 
       - name: Cleanup AWS resources
         if: always()
@@ -475,7 +494,7 @@ jobs:
         run: |
           echo "## AAP Image Build Complete - Flavor: ${{ matrix.flavor }}" >> $GITHUB_STEP_SUMMARY
           echo "**AMI Name:** ${{ steps.get-ami.outputs.final_name }}" >> $GITHUB_STEP_SUMMARY
-          echo "**S3 Location:** ${{ steps.rename-qcow2.outputs.versioned_s3_url }}" >> $GITHUB_STEP_SUMMARY
+          echo "**S3 Location:** ${{ steps.convert-qcow2.outputs.s3_url }}" >> $GITHUB_STEP_SUMMARY
           echo "**Build Date:** $(date)" >> $GITHUB_STEP_SUMMARY
           echo "**Components:**" >> $GITHUB_STEP_SUMMARY
           echo "- Controller: ${AAP_INCLUDE_CONTROLLER}" >> $GITHUB_STEP_SUMMARY
