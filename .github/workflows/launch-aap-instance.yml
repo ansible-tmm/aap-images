@@ -65,23 +65,26 @@ jobs:
   authorize:
     runs-on: ubuntu-latest
     steps:
-      - name: Verify user is a member of ansible-tmm org
+      - name: Verify user has write access to this repository
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           ACTOR="${{ github.actor }}"
-          echo "Checking org membership for $ACTOR..."
+          echo "Checking repository access for $ACTOR..."
 
-          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+          PERMISSION=$(curl -s \
             -H "Authorization: token $GH_TOKEN" \
             -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/orgs/ansible-tmm/members/$ACTOR")
+            "https://api.github.com/repos/${{ github.repository }}/collaborators/$ACTOR/permission" \
+            | jq -r '.permission // "none"')
 
-          if [ "$HTTP_CODE" == "204" ]; then
-            echo "$ACTOR is a member of ansible-tmm"
+          echo "Permission level: $PERMISSION"
+
+          if [ "$PERMISSION" == "admin" ] || [ "$PERMISSION" == "write" ]; then
+            echo "$ACTOR has $PERMISSION access, authorized."
           else
-            echo "ERROR: $ACTOR is not a member of the ansible-tmm organization (HTTP $HTTP_CODE)"
-            echo "Only ansible-tmm org members can launch AAP instances."
+            echo "ERROR: $ACTOR does not have write access to this repository (permission: $PERMISSION)"
+            echo "Only repository collaborators with write access can launch AAP instances."
             exit 1
           fi
 
