@@ -251,7 +251,7 @@ jobs:
           SG_ID=$(aws ec2 create-security-group \
             --group-name "$SG_NAME" \
             --description "AAP on-demand instance for $OWNER" \
-            --tag-specifications "ResourceType=security-group,Tags=[{Key=Owner,Value=$OWNER},{Key=Project,Value=aap-on-demand}]" \
+            --tag-specifications "ResourceType=security-group,Tags=[{Key=owner,Value=$OWNER},{Key=Project,Value=aap-on-demand}]" \
             --query 'GroupId' \
             --output text)
 
@@ -288,7 +288,7 @@ jobs:
             --security-group-ids "${{ steps.create-sg.outputs.sg_id }}" \
             $KEY_PAIR_ARG \
             --block-device-mappings '[{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":50,"VolumeType":"gp3","DeleteOnTermination":true}}]' \
-            --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=aap-${VERSION}-${FLAVOR}-${OWNER}},{Key=Owner,Value=${OWNER}},{Key=ExpiresAt,Value=${EXPIRES_AT}},{Key=Project,Value=aap-on-demand},{Key=AAPVersion,Value=${VERSION}},{Key=Flavor,Value=${FLAVOR}}]" \
+            --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=aap-${VERSION}-${FLAVOR}-${OWNER}},{Key=owner,Value=${OWNER}},{Key=ExpiresAt,Value=${EXPIRES_AT}},{Key=Project,Value=aap-on-demand},{Key=AAPVersion,Value=${VERSION}},{Key=Flavor,Value=${FLAVOR}}]" \
             --associate-public-ip-address \
             --query 'Instances[0].InstanceId' \
             --output text)
