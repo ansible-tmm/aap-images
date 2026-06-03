@@ -351,39 +351,20 @@ jobs:
           echo "Public IP: $PUBLIC_IP"
           echo "public_ip=$PUBLIC_IP" >> $GITHUB_OUTPUT
 
-      - name: Wait for AAP to be healthy
+      - name: Wait for SSH to be available
         run: |
           PUBLIC_IP="${{ steps.get-ip.outputs.public_ip }}"
-          echo "Waiting for AAP to be healthy at https://$PUBLIC_IP ..."
-
-          for i in {1..60}; do
-            HTTP_CODE=$(curl -sk -o /dev/null -w "%{http_code}" \
-              "https://$PUBLIC_IP/api/gateway/v1/ping/" 2>/dev/null || echo "000")
-
-            if [ "$HTTP_CODE" == "200" ]; then
-              echo "AAP is healthy (attempt $i)"
+          echo "Waiting for SSH on $PUBLIC_IP..."
+          for i in {1..30}; do
+            if nc -z -w5 $PUBLIC_IP 22 2>/dev/null; then
+              echo "SSH is available (attempt $i)"
               break
             fi
-
-            if [ $i -eq 60 ]; then
-              echo "WARNING: AAP did not become healthy after 10 minutes"
-              echo "The instance is running but AAP services may still be starting."
-              echo "Try accessing https://$PUBLIC_IP in a few minutes."
+            if [ $i -eq 30 ]; then
+              echo "WARNING: SSH did not become available after 5 minutes"
             fi
-
-            echo "Attempt $i: HTTP $HTTP_CODE, waiting..."
             sleep 10
           done
-
-      - name: Update TOWER_URL_BASE to public IP
-        run: |
-          PUBLIC_IP="${{ steps.get-ip.outputs.public_ip }}"
-
-          curl -sk -X PATCH \
-            -H "Content-Type: application/json" \
-            -u "admin:${{ secrets.INSTALLER_ADMIN_PW }}" \
-            "https://$PUBLIC_IP/api/controller/v2/settings/system/" \
-            -d "{\"TOWER_URL_BASE\": \"https://$PUBLIC_IP\"}" || echo "Failed to update TOWER_URL_BASE, may need manual configuration"
 
       - name: Configure Lightspeed via installer re-run
         if: github.event.inputs.include_lightspeed == 'true'
@@ -557,6 +538,40 @@ jobs:
 
           rm -f /tmp/lightspeed-key /tmp/lightspeed-key.pub /tmp/setup-lightspeed.sh
           echo "Lightspeed configuration complete."
+
+      - name: Wait for AAP to be healthy
+        run: |
+          PUBLIC_IP="${{ steps.get-ip.outputs.public_ip }}"
+          echo "Waiting for AAP to be healthy at https://$PUBLIC_IP ..."
+
+          for i in {1..60}; do
+            HTTP_CODE=$(curl -sk -o /dev/null -w "%{http_code}" \
+              "https://$PUBLIC_IP/api/gateway/v1/ping/" 2>/dev/null || echo "000")
+
+            if [ "$HTTP_CODE" == "200" ]; then
+              echo "AAP is healthy (attempt $i)"
+              break
+            fi
+
+            if [ $i -eq 60 ]; then
+              echo "WARNING: AAP did not become healthy after 10 minutes"
+              echo "The instance is running but AAP services may still be starting."
+              echo "Try accessing https://$PUBLIC_IP in a few minutes."
+            fi
+
+            echo "Attempt $i: HTTP $HTTP_CODE, waiting..."
+            sleep 10
+          done
+
+      - name: Update TOWER_URL_BASE to public IP
+        run: |
+          PUBLIC_IP="${{ steps.get-ip.outputs.public_ip }}"
+
+          curl -sk -X PATCH \
+            -H "Content-Type: application/json" \
+            -u "admin:${{ secrets.INSTALLER_ADMIN_PW }}" \
+            "https://$PUBLIC_IP/api/controller/v2/settings/system/" \
+            -d "{\"TOWER_URL_BASE\": \"https://$PUBLIC_IP\"}" || echo "Failed to update TOWER_URL_BASE, may need manual configuration"
 
       - name: Generate build summary
         run: |
