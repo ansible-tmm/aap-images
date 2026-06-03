@@ -153,6 +153,8 @@ jobs:
       - name: Checkout repository
         if: steps.find-ami.outputs.ami_id == ''
         uses: actions/checkout@v4
+        with:
+          ref: aws-builds
 
       - name: Set INSTALLER_URL for build
         if: steps.find-ami.outputs.ami_id == ''
