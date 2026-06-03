@@ -91,13 +91,16 @@ locals {
 
     // Combine arguments into extra_args
     extra_args = concat(local.extra_args_common, local.extra_args_file)
+
+    // AAP 2.7 requires RHEL 9.6+
+    rhel_ami_pattern = var.aap_version == "2.7" ? "RHEL-9.6*_HVM-*-x86_64-*-GP*" : "RHEL-9*_HVM-*-x86_64-*-GP*"
 }
 
 source "amazon-ebs" "automation-controller" {
     region          = var.aws_region
     source_ami_filter {
         filters = {
-            name                = "RHEL-9*_HVM-*-x86_64-*-GP*"
+            name                = local.rhel_ami_pattern
             root-device-type    = "ebs"
             virtualization-type = "hvm"
         }
