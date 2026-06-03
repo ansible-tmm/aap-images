@@ -107,7 +107,7 @@ automationmetrics_pg_host={{ installer_fqdn_hostname }}
 automationmetrics_pg_password={{ installer_admin_pw }}
 automationmetrics_controller_read_pg_host={{ installer_fqdn_hostname }}
 automationmetrics_controller_read_pg_password={{ installer_admin_pw }}
-feature_flags={"FEATURE_DASHBOARD_COLLECTION_ENABLED": true}
+feature_flags={ "FEATURE_DASHBOARD_COLLECTION_ENABLED": True }
 {% endif %}
 
 {% if aap_include_lightspeed|default(false)|bool %}
