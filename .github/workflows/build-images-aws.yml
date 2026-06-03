@@ -380,12 +380,17 @@ jobs:
             --instance-type t3.xlarge \
             --key-name $KEY_NAME \
             --security-group-ids $TEMP_SG_ID \
+            --instance-initiated-shutdown-behavior terminate \
             --block-device-mappings '[{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":100,"VolumeType":"gp3","DeleteOnTermination":true}}]' \
             --user-data file:///tmp/user-data.sh \
             --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=qcow2-converter},{Key=Purpose,Value=temporary}]" \
             --query 'Instances[0].InstanceId' \
             --output text)
           echo "Launched converter instance: $CONVERTER_INSTANCE"
+
+          echo "converter_instance_id=$CONVERTER_INSTANCE" >> $GITHUB_OUTPUT
+          echo "converter_sg_id=$TEMP_SG_ID" >> $GITHUB_OUTPUT
+          echo "converter_key_name=$KEY_NAME" >> $GITHUB_OUTPUT
 
           echo "Waiting for instance to be running..."
           aws ec2 wait instance-running --instance-ids $CONVERTER_INSTANCE
@@ -466,7 +471,38 @@ jobs:
           echo "- Hub: ${AAP_INCLUDE_AUTOMATION_HUB}" >> $GITHUB_STEP_SUMMARY
           echo "- MCP Server: ${AAP_INCLUDE_MCP_SERVER}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Note:** AMI and snapshots have been automatically cleaned up to save costs." >> $GITHUB_STEP_SUMMARY
+          echo "**Note:** AMI is kept for reuse by the launch workflow." >> $GITHUB_STEP_SUMMARY
+
+      - name: Cleanup converter resources
+        if: always()
+        run: |
+          INSTANCE_ID="${{ steps.convert-qcow2.outputs.converter_instance_id }}"
+          SG_ID="${{ steps.convert-qcow2.outputs.converter_sg_id }}"
+          KEY_NAME="${{ steps.convert-qcow2.outputs.converter_key_name }}"
+
+          if [ -n "$INSTANCE_ID" ] && [ "$INSTANCE_ID" != "null" ]; then
+            echo "Terminating converter instance: $INSTANCE_ID"
+            STATE=$(aws ec2 describe-instances --instance-ids "$INSTANCE_ID" --query 'Reservations[0].Instances[0].State.Name' --output text 2>/dev/null || echo "unknown")
+            if [ "$STATE" != "terminated" ]; then
+              aws ec2 terminate-instances --instance-ids "$INSTANCE_ID" || true
+              aws ec2 wait instance-terminated --instance-ids "$INSTANCE_ID" || true
+            fi
+          fi
+
+          if [ -n "$KEY_NAME" ] && [ "$KEY_NAME" != "null" ]; then
+            echo "Deleting key pair: $KEY_NAME"
+            aws ec2 delete-key-pair --key-name "$KEY_NAME" || true
+          fi
+
+          rm -f /tmp/converter-key /tmp/converter-key.pub /tmp/user-data.sh
+
+          if [ -n "$SG_ID" ] && [ "$SG_ID" != "null" ]; then
+            echo "Deleting security group: $SG_ID"
+            sleep 30
+            aws ec2 delete-security-group --group-id "$SG_ID" || echo "SG cleanup deferred"
+          fi
+
+          echo "Converter cleanup complete"
 
       # - name: Capture installer details from Packer
       #   if: success()
