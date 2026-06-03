@@ -528,7 +528,7 @@ jobs:
           lightspeed_chatbot_model_id=${MODEL_ID}
 
           mcp_allow_write_operations=true
-          feature_flags={"FEATURE_DASHBOARD_COLLECTION_ENABLED": true}
+          feature_flags={ "FEATURE_DASHBOARD_COLLECTION_ENABLED": True }
           INV
 
           if [ -n "$BYOK_IMAGE" ] && [ "$AAP_VERSION" == "2.7" ]; then
