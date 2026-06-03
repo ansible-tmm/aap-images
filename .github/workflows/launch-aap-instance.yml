@@ -424,13 +424,6 @@ jobs:
           ssh-keygen -t rsa -b 2048 -f /tmp/lightspeed-key -N ""
           chmod 600 /tmp/lightspeed-key
 
-          echo "Pushing temporary SSH key via EC2 Instance Connect..."
-          aws ec2-instance-connect send-ssh-public-key \
-            --instance-id "$INSTANCE_ID" \
-            --instance-os-user ec2-user \
-            --ssh-public-key file:///tmp/lightspeed-key.pub \
-            --availability-zone "$INSTANCE_AZ"
-
           SSH_OPTS="-o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=120 -i /tmp/lightspeed-key"
 
           cat > /tmp/setup-lightspeed.sh << 'SCRIPT_END'
@@ -545,8 +538,20 @@ jobs:
 
           chmod +x /tmp/setup-lightspeed.sh
 
+          echo "Pushing SSH key and uploading script..."
+          aws ec2-instance-connect send-ssh-public-key \
+            --instance-id "$INSTANCE_ID" \
+            --instance-os-user ec2-user \
+            --ssh-public-key file:///tmp/lightspeed-key.pub \
+            --availability-zone "$INSTANCE_AZ"
           scp $SSH_OPTS /tmp/setup-lightspeed.sh ec2-user@$PUBLIC_IP:/tmp/
 
+          echo "Pushing SSH key and running installer..."
+          aws ec2-instance-connect send-ssh-public-key \
+            --instance-id "$INSTANCE_ID" \
+            --instance-os-user ec2-user \
+            --ssh-public-key file:///tmp/lightspeed-key.pub \
+            --availability-zone "$INSTANCE_AZ"
           ssh $SSH_OPTS ec2-user@$PUBLIC_IP \
             "sudo bash /tmp/setup-lightspeed.sh '$INSTALLER_URL' '$ADMIN_PW' '$MODEL_URL' '$API_KEY' '$MODEL_ID' '$REGISTRY_USER' '$REGISTRY_PASS' '$BYOK_IMAGE' '$AAP_VERSION'"
 
