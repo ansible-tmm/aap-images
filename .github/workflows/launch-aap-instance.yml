@@ -361,12 +361,21 @@ jobs:
         if: github.event.inputs.include_lightspeed == 'true'
         run: |
           PUBLIC_IP="${{ steps.get-ip.outputs.public_ip }}"
+          VERSION="${{ github.event.inputs.aap_version }}"
           MODEL_URL="${{ github.event.inputs.lightspeed_model_url }}"
           MODEL_ID="${{ github.event.inputs.lightspeed_model_id }}"
           API_KEY="${{ github.event.inputs.lightspeed_api_key }}"
           SSH_KEY_NAME="${{ github.event.inputs.ssh_key_name }}"
           ADMIN_PW="${{ secrets.INSTALLER_ADMIN_PW }}"
-          INSTALLER_DIR="/root/ansible-automation-platform-containerized-setup"
+          if [ "${{ github.event.inputs.aap_version }}" == "2.7" ]; then
+            INSTALLER_URL="${{ secrets.INSTALLER_URL_27 }}"
+          elif [ "${{ github.event.inputs.aap_version }}" == "2.6" ]; then
+            INSTALLER_URL="${{ secrets.INSTALLER_URL_26 }}"
+          else
+            INSTALLER_URL="${{ secrets.INSTALLER_URL_25 }}"
+          fi
+          REGISTRY_USER="${{ secrets.INSTALLER_REGISTRY_USERNAME }}"
+          REGISTRY_PASS="${{ secrets.INSTALLER_REGISTRY_PASSWORD }}"
 
           if [ -z "$MODEL_URL" ] || [ -z "$MODEL_ID" ] || [ -z "$API_KEY" ]; then
             echo "WARNING: Lightspeed enabled but model URL, ID, or API key not provided."
@@ -381,42 +390,108 @@ jobs:
           fi
 
           echo "Configuring Lightspeed with model: $MODEL_ID"
+          echo "Will download fresh installer and re-run with Lightspeed enabled."
 
-          # Build the setup script locally and scp it to the instance
           cat > /tmp/setup-lightspeed.sh << 'SCRIPT_END'
           #!/bin/bash
           set -e
-          INSTALLER_DIR="$1"
+          INSTALLER_URL="$1"
           ADMIN_PW="$2"
           MODEL_URL="$3"
           API_KEY="$4"
           MODEL_ID="$5"
+          REGISTRY_USER="$6"
+          REGISTRY_PASS="$7"
           HOSTNAME=$(hostname)
+          INSTALLER_DIR="/tmp/ansible-automation-platform-containerized-setup"
 
-          cd "$INSTALLER_DIR"
+          echo "Downloading AAP installer..."
+          curl -sL -o /tmp/aap-installer.tar.gz "$INSTALLER_URL"
 
-          if ! grep -q '\[ansiblelightspeed\]' inventory.custom; then
-            sed -i "/\[automationgateway\]/i [ansiblelightspeed]\n${HOSTNAME} ansible_connection=local\n" inventory.custom
+          echo "Extracting installer..."
+          tar -xf /tmp/aap-installer.tar.gz -C /tmp/
+
+          EXTRACTED=$(find /tmp -maxdepth 1 -type d -name "ansible-automation-platform-*setup*" | head -1)
+          if [ -z "$EXTRACTED" ]; then
+            echo "ERROR: Could not find extracted installer directory"
+            exit 1
           fi
+          mv "$EXTRACTED" "$INSTALLER_DIR"
+          rm -f /tmp/aap-installer.tar.gz
 
-          if ! grep -q 'lightspeed_admin_user' inventory.custom; then
-            printf '\n# Red Hat Ansible Lightspeed\n' >> inventory.custom
-            printf 'lightspeed_admin_user=admin\n' >> inventory.custom
-            printf 'lightspeed_admin_password=%s\n' "$ADMIN_PW" >> inventory.custom
-            printf 'lightspeed_admin_email=admin@example.com\n' >> inventory.custom
-            printf 'lightspeed_pg_host=%s\n' "$HOSTNAME" >> inventory.custom
-            printf 'lightspeed_pg_password=%s\n' "$ADMIN_PW" >> inventory.custom
-            printf 'lightspeed_chatbot_model_url=%s\n' "$MODEL_URL" >> inventory.custom
-            printf 'lightspeed_chatbot_model_api_key=%s\n' "$API_KEY" >> inventory.custom
-            printf 'lightspeed_chatbot_model_id=%s\n' "$MODEL_ID" >> inventory.custom
-          fi
+          echo "Building inventory with Lightspeed enabled..."
+          cat > "$INSTALLER_DIR/inventory.custom" << INV
+          [automationcontroller]
+          ${HOSTNAME} ansible_connection=local
 
-          echo "Updated inventory:"
-          cat inventory.custom
+          [automationeda]
+          ${HOSTNAME} ansible_connection=local
 
+          [automationhub]
+          ${HOSTNAME} ansible_connection=local
+
+          [ansiblelightspeed]
+          ${HOSTNAME} ansible_connection=local
+
+          [automationgateway]
+          ${HOSTNAME} ansible_connection=local
+
+          [ansiblemcp]
+          ${HOSTNAME} ansible_connection=local
+
+          [database]
+          ${HOSTNAME} ansible_connection=local
+
+          [redis]
+          ${HOSTNAME} ansible_connection=local
+
+          [all:vars]
+          postgresql_admin_username=postgres
+          postgresql_admin_password=${ADMIN_PW}
+          registry_username=${REGISTRY_USER}
+          registry_password=${REGISTRY_PASS}
+          redis_mode=standalone
+
+          controller_admin_password=${ADMIN_PW}
+          controller_pg_host=${HOSTNAME}
+          controller_pg_password=${ADMIN_PW}
+
+          eda_admin_password=${ADMIN_PW}
+          eda_pg_host=${HOSTNAME}
+          eda_pg_password=${ADMIN_PW}
+
+          hub_admin_password=${ADMIN_PW}
+          hub_pg_host=${HOSTNAME}
+          hub_pg_password=${ADMIN_PW}
+
+          gateway_admin_password=${ADMIN_PW}
+          gateway_pg_host=${HOSTNAME}
+          gateway_pg_password=${ADMIN_PW}
+
+          lightspeed_admin_user=admin
+          lightspeed_admin_password=${ADMIN_PW}
+          lightspeed_admin_email=admin@example.com
+          lightspeed_pg_host=${HOSTNAME}
+          lightspeed_pg_password=${ADMIN_PW}
+          lightspeed_chatbot_model_url=${MODEL_URL}
+          lightspeed_chatbot_model_api_key=${API_KEY}
+          lightspeed_chatbot_model_id=${MODEL_ID}
+
+          mcp_allow_write_operations=true
+          INV
+
+          echo "Inventory:"
+          cat "$INSTALLER_DIR/inventory.custom"
+
+          chown -R rhel:rhel "$INSTALLER_DIR"
+
+          echo "Re-running AAP installer with Lightspeed..."
           sudo -u rhel XDG_RUNTIME_DIR=/run/user/1001 \
             ANSIBLE_COLLECTIONS_PATH="$INSTALLER_DIR/collections" \
-            ansible-playbook -i inventory.custom ansible.containerized_installer.install
+            ansible-playbook -i "$INSTALLER_DIR/inventory.custom" ansible.containerized_installer.install
+
+          echo "Cleaning up installer..."
+          rm -rf "$INSTALLER_DIR"
           SCRIPT_END
 
           chmod +x /tmp/setup-lightspeed.sh
@@ -425,7 +500,7 @@ jobs:
 
           ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=120 \
             ec2-user@$PUBLIC_IP \
-            "sudo bash /tmp/setup-lightspeed.sh '$INSTALLER_DIR' '$ADMIN_PW' '$MODEL_URL' '$API_KEY' '$MODEL_ID'"
+            "sudo bash /tmp/setup-lightspeed.sh '$INSTALLER_URL' '$ADMIN_PW' '$MODEL_URL' '$API_KEY' '$MODEL_ID' '$REGISTRY_USER' '$REGISTRY_PASS'"
 
           echo "Lightspeed configuration complete."
 
