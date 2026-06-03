@@ -31,8 +31,8 @@ on:
         description: 'Lightspeed model endpoint URL'
         required: false
         type: string
-      lightspeed_model_name:
-        description: 'Lightspeed model name'
+      lightspeed_model_id:
+        description: 'Lightspeed model ID'
         required: false
         type: string
       lightspeed_api_key:
@@ -357,26 +357,77 @@ jobs:
             "https://$PUBLIC_IP/api/controller/v2/settings/system/" \
             -d "{\"TOWER_URL_BASE\": \"https://$PUBLIC_IP\"}" || echo "Failed to update TOWER_URL_BASE, may need manual configuration"
 
-      - name: Configure Lightspeed
+      - name: Configure Lightspeed via installer re-run
         if: github.event.inputs.include_lightspeed == 'true'
         run: |
           PUBLIC_IP="${{ steps.get-ip.outputs.public_ip }}"
           MODEL_URL="${{ github.event.inputs.lightspeed_model_url }}"
-          MODEL_NAME="${{ github.event.inputs.lightspeed_model_name }}"
+          MODEL_ID="${{ github.event.inputs.lightspeed_model_id }}"
           API_KEY="${{ github.event.inputs.lightspeed_api_key }}"
+          SSH_KEY_NAME="${{ github.event.inputs.ssh_key_name }}"
+          ADMIN_PW="${{ secrets.INSTALLER_ADMIN_PW }}"
+          INSTALLER_DIR="/root/ansible-automation-platform-containerized-setup"
 
-          if [ -z "$MODEL_URL" ] || [ -z "$MODEL_NAME" ] || [ -z "$API_KEY" ]; then
-            echo "WARNING: Lightspeed enabled but model URL, name, or API key not provided."
-            echo "You will need to configure Lightspeed manually in the AAP UI."
-          else
-            echo "Configuring Lightspeed with model: $MODEL_NAME"
-            echo "Lightspeed configuration via API is version-dependent."
-            echo "Please configure Lightspeed manually in the AAP UI:"
-            echo "  Settings > Ansible Lightspeed"
-            echo "  Model URL: $MODEL_URL"
-            echo "  Model Name: $MODEL_NAME"
-            echo "  API Key: (provided)"
+          if [ -z "$MODEL_URL" ] || [ -z "$MODEL_ID" ] || [ -z "$API_KEY" ]; then
+            echo "WARNING: Lightspeed enabled but model URL, ID, or API key not provided."
+            echo "Skipping Lightspeed configuration."
+            exit 0
           fi
+
+          if [ -z "$SSH_KEY_NAME" ]; then
+            echo "ERROR: SSH key pair is required for Lightspeed configuration."
+            echo "Lightspeed requires re-running the installer on the instance via SSH."
+            exit 1
+          fi
+
+          echo "Configuring Lightspeed with model: $MODEL_ID"
+
+          # Build the setup script locally and scp it to the instance
+          cat > /tmp/setup-lightspeed.sh << 'SCRIPT_END'
+          #!/bin/bash
+          set -e
+          INSTALLER_DIR="$1"
+          ADMIN_PW="$2"
+          MODEL_URL="$3"
+          API_KEY="$4"
+          MODEL_ID="$5"
+          HOSTNAME=$(hostname)
+
+          cd "$INSTALLER_DIR"
+
+          if ! grep -q '\[ansiblelightspeed\]' inventory.custom; then
+            sed -i "/\[automationgateway\]/i [ansiblelightspeed]\n${HOSTNAME} ansible_connection=local\n" inventory.custom
+          fi
+
+          if ! grep -q 'lightspeed_admin_user' inventory.custom; then
+            printf '\n# Red Hat Ansible Lightspeed\n' >> inventory.custom
+            printf 'lightspeed_admin_user=admin\n' >> inventory.custom
+            printf 'lightspeed_admin_password=%s\n' "$ADMIN_PW" >> inventory.custom
+            printf 'lightspeed_admin_email=admin@example.com\n' >> inventory.custom
+            printf 'lightspeed_pg_host=%s\n' "$HOSTNAME" >> inventory.custom
+            printf 'lightspeed_pg_password=%s\n' "$ADMIN_PW" >> inventory.custom
+            printf 'lightspeed_chatbot_model_url=%s\n' "$MODEL_URL" >> inventory.custom
+            printf 'lightspeed_chatbot_model_api_key=%s\n' "$API_KEY" >> inventory.custom
+            printf 'lightspeed_chatbot_model_id=%s\n' "$MODEL_ID" >> inventory.custom
+          fi
+
+          echo "Updated inventory:"
+          cat inventory.custom
+
+          sudo -u rhel XDG_RUNTIME_DIR=/run/user/1001 \
+            ANSIBLE_COLLECTIONS_PATH="$INSTALLER_DIR/collections" \
+            ansible-playbook -i inventory.custom ansible.containerized_installer.install
+          SCRIPT_END
+
+          chmod +x /tmp/setup-lightspeed.sh
+
+          scp -o StrictHostKeyChecking=no /tmp/setup-lightspeed.sh ec2-user@$PUBLIC_IP:/tmp/
+
+          ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=120 \
+            ec2-user@$PUBLIC_IP \
+            "sudo bash /tmp/setup-lightspeed.sh '$INSTALLER_DIR' '$ADMIN_PW' '$MODEL_URL' '$API_KEY' '$MODEL_ID'"
+
+          echo "Lightspeed configuration complete."
 
       - name: Generate build summary
         run: |

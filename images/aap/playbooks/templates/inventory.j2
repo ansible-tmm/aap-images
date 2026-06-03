@@ -33,6 +33,13 @@
 {{ installer_fqdn_hostname }} ansible_connection=local
 {% endif %}
 
+{% if aap_include_lightspeed|default(false)|bool %}
+# This section is for your Red Hat Ansible Lightspeed host(s)
+# -------------------------------------------------------------
+[ansiblelightspeed]
+{{ installer_fqdn_hostname }} ansible_connection=local
+{% endif %}
+
 {% if aap_include_mcp_server|bool %}
 # This section is for the Ansible MCP server host
 # -------------------------------------------------
@@ -100,6 +107,20 @@ automationmetrics_pg_host={{ installer_fqdn_hostname }}
 automationmetrics_pg_password={{ installer_admin_pw }}
 automationmetrics_controller_read_pg_host={{ installer_fqdn_hostname }}
 automationmetrics_controller_read_pg_password={{ installer_admin_pw }}
+{% endif %}
+
+{% if aap_include_lightspeed|default(false)|bool %}
+# Red Hat Ansible Lightspeed
+lightspeed_admin_user={{ lightspeed_admin_user | default('admin') }}
+lightspeed_admin_password={{ installer_admin_pw }}
+lightspeed_admin_email={{ lightspeed_admin_email | default('admin@example.com') }}
+lightspeed_pg_host={{ installer_fqdn_hostname }}
+lightspeed_pg_password={{ installer_admin_pw }}
+{% if lightspeed_chatbot_model_url|default('') != '' and lightspeed_chatbot_model_api_key|default('') != '' and lightspeed_chatbot_model_id|default('') != '' %}
+lightspeed_chatbot_model_url={{ lightspeed_chatbot_model_url }}
+lightspeed_chatbot_model_api_key={{ lightspeed_chatbot_model_api_key }}
+lightspeed_chatbot_model_id={{ lightspeed_chatbot_model_id }}
+{% endif %}
 {% endif %}
 
 {% if aap_include_mcp_server|bool %}
