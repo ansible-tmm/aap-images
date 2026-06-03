@@ -127,13 +127,15 @@ jobs:
         run: |
           VERSION="${{ github.event.inputs.aap_version }}"
           FLAVOR="${{ steps.set-flavor.outputs.flavor }}"
-          PATTERN="aap-${VERSION}*-${FLAVOR}-*"
+          PATTERN1="aap-${VERSION}-${FLAVOR}-*"
+          PATTERN2="aap-${VERSION}.*-${FLAVOR}-*"
+          PATTERN3="aap-temp-${FLAVOR}-*"
 
-          echo "Searching for AMI matching: $PATTERN"
+          echo "Searching for AMI matching: $PATTERN1, $PATTERN2, or $PATTERN3"
 
           AMI_ID=$(aws ec2 describe-images \
             --owners self \
-            --filters "Name=name,Values=${PATTERN}" \
+            --filters "Name=name,Values=${PATTERN1},${PATTERN2},${PATTERN3}" \
                       "Name=state,Values=available" \
             --query 'Images | sort_by(@, &CreationDate) | [-1].ImageId' \
             --output text)
@@ -146,7 +148,7 @@ jobs:
             echo "Found existing AMI: $AMI_ID ($AMI_NAME)"
             echo "ami_id=$AMI_ID" >> $GITHUB_OUTPUT
           else
-            echo "No existing AMI found matching $PATTERN"
+            echo "No existing AMI found matching $PATTERN1, $PATTERN2, or $PATTERN3"
             echo "ami_id=" >> $GITHUB_OUTPUT
           fi
 
