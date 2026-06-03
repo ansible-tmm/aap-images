@@ -265,7 +265,9 @@ jobs:
             --ip-permissions \
               "IpProtocol=tcp,FromPort=22,ToPort=22,IpRanges=[{CidrIp=0.0.0.0/0,Description=SSH}]" \
               "IpProtocol=tcp,FromPort=80,ToPort=80,IpRanges=[{CidrIp=0.0.0.0/0,Description=HTTP}]" \
-              "IpProtocol=tcp,FromPort=443,ToPort=443,IpRanges=[{CidrIp=0.0.0.0/0,Description=HTTPS}]"
+              "IpProtocol=tcp,FromPort=443,ToPort=443,IpRanges=[{CidrIp=0.0.0.0/0,Description=HTTPS}]" \
+              "IpProtocol=tcp,FromPort=8448,ToPort=8448,IpRanges=[{CidrIp=0.0.0.0/0,Description=MCP-Server}]" \
+              "IpProtocol=tcp,FromPort=27199,ToPort=27199,IpRanges=[{CidrIp=0.0.0.0/0,Description=Receptor}]"
 
           echo "sg_id=$SG_ID" >> $GITHUB_OUTPUT
 
