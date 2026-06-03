@@ -546,9 +546,21 @@ jobs:
           chown -R rhel:rhel "$INSTALLER_DIR"
 
           echo "Re-running AAP installer with Lightspeed..."
-          sudo -u rhel XDG_RUNTIME_DIR=/run/user/1001 \
-            ANSIBLE_COLLECTIONS_PATH="$INSTALLER_DIR/collections" \
-            ansible-playbook -i "$INSTALLER_DIR/inventory.custom" ansible.containerized_installer.install
+          for attempt in 1 2; do
+            if sudo -u rhel XDG_RUNTIME_DIR=/run/user/1001 \
+              ANSIBLE_COLLECTIONS_PATH="$INSTALLER_DIR/collections" \
+              ansible-playbook -i "$INSTALLER_DIR/inventory.custom" ansible.containerized_installer.install; then
+              echo "Installer completed successfully on attempt $attempt"
+              break
+            fi
+            if [ $attempt -eq 1 ]; then
+              echo "Installer failed on first attempt (likely postgresql timing), retrying in 30 seconds..."
+              sleep 30
+            else
+              echo "Installer failed on second attempt"
+              exit 1
+            fi
+          done
 
           echo "Cleaning up installer..."
           rm -rf "$INSTALLER_DIR"
