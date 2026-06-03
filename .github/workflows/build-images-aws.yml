@@ -319,7 +319,7 @@ jobs:
               # Launch instance with 100GB root volume
               CONVERTER_INSTANCE=$(aws ec2 run-instances \
                 --image-id $CONVERTER_AMI \
-                --instance-type t3.medium \
+                --instance-type t3.xlarge \
                 --key-name $KEY_NAME \
                 --security-group-ids $TEMP_SG_ID \
                 --block-device-mappings '[{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":100,"VolumeType":"gp3","DeleteOnTermination":true}}]' \
