@@ -404,6 +404,10 @@ jobs:
           BYOK_IMAGE="${{ github.event.inputs.lightspeed_byok_image }}"
           AAP_VERSION="${{ github.event.inputs.aap_version }}"
           ADMIN_PW="${{ secrets.INSTALLER_ADMIN_PW }}"
+
+          echo "::add-mask::$MODEL_URL"
+          echo "::add-mask::$API_KEY"
+          echo "::add-mask::$ADMIN_PW"
           if [ "${{ github.event.inputs.aap_version }}" == "2.7" ]; then
             INSTALLER_URL="${{ secrets.INSTALLER_URL_27 }}"
           elif [ "${{ github.event.inputs.aap_version }}" == "2.6" ]; then
@@ -471,6 +475,9 @@ jobs:
           [automationgateway]
           ${HOSTNAME} ansible_connection=local
 
+          [automationmetrics]
+          ${HOSTNAME} ansible_connection=local
+
           [ansiblemcp]
           ${HOSTNAME} ansible_connection=local
 
@@ -503,6 +510,11 @@ jobs:
           gateway_pg_host=${HOSTNAME}
           gateway_pg_password=${ADMIN_PW}
 
+          automationmetrics_pg_host=${HOSTNAME}
+          automationmetrics_pg_password=${ADMIN_PW}
+          automationmetrics_controller_read_pg_host=${HOSTNAME}
+          automationmetrics_controller_read_pg_password=${ADMIN_PW}
+
           lightspeed_admin_user=admin
           lightspeed_admin_password=${ADMIN_PW}
           lightspeed_admin_email=admin@example.com
@@ -521,8 +533,7 @@ jobs:
             echo "BYOK image configured: $BYOK_IMAGE"
           fi
 
-          echo "Inventory:"
-          cat "$INSTALLER_DIR/inventory.custom"
+          echo "Inventory generated (sensitive values hidden)"
 
           chown -R rhel:rhel "$INSTALLER_DIR"
 
