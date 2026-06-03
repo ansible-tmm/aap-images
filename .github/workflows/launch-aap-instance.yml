@@ -540,7 +540,7 @@ jobs:
 
           if [ -n "$BYOK_IMAGE" ] && [ "$AAP_VERSION" == "2.7" ]; then
             echo "Pulling BYOK image: $BYOK_IMAGE"
-            sudo -u rhel podman pull "$BYOK_IMAGE"
+            cd /tmp && sudo -u rhel podman pull "$BYOK_IMAGE"
           fi
 
           chown -R rhel:rhel "$INSTALLER_DIR"
