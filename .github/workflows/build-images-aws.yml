@@ -74,7 +74,7 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION || 'us-east-1' }}
 
-      - name: Check for existing raw image from today
+      - name: Check for existing raw image from last 24 hours
         id: check-raw
         env:
           AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
@@ -82,23 +82,23 @@ jobs:
           S3_BUCKET="${{ secrets.S3_BUCKET_NAME || 'aap-qcow2-images' }}"
           FLAVOR_LOWER=$(echo "${{ matrix.flavor }}" | tr '[:upper:]' '[:lower:]')
           S3_PREFIX="aap-images/$FLAVOR_LOWER/"
-          TODAY=$(date -u +%Y-%m-%d)
+          CUTOFF=$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%S 2>/dev/null || date -u -v-24H +%Y-%m-%dT%H:%M:%S)
 
-          echo "Checking for existing raw image in s3://$S3_BUCKET/$S3_PREFIX from $TODAY..."
+          echo "Checking for raw image in s3://$S3_BUCKET/$S3_PREFIX modified after $CUTOFF..."
 
           RAW_KEY=$(aws s3api list-objects-v2 \
             --bucket "$S3_BUCKET" \
             --prefix "$S3_PREFIX" \
-            --query "Contents[?contains(Key, '.raw') && contains(to_string(LastModified), '${TODAY}')].Key | [0]" \
+            --query "Contents[?contains(Key, '.raw') && LastModified>=\`${CUTOFF}\`].Key | [0]" \
             --output text 2>/dev/null || echo "None")
 
           if [ -n "$RAW_KEY" ] && [ "$RAW_KEY" != "None" ] && [ "$RAW_KEY" != "null" ]; then
-            echo "Found existing raw image from today: $RAW_KEY"
+            echo "Found existing raw image from last 24 hours: $RAW_KEY"
             echo "raw_exists=true" >> $GITHUB_OUTPUT
             echo "raw_s3_key=$RAW_KEY" >> $GITHUB_OUTPUT
             echo "raw_s3_bucket=$S3_BUCKET" >> $GITHUB_OUTPUT
           else
-            echo "No existing raw image found for today, full build required"
+            echo "No recent raw image found, full build required"
             echo "raw_exists=false" >> $GITHUB_OUTPUT
           fi
 
