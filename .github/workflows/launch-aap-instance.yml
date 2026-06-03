@@ -228,12 +228,34 @@ jobs:
             -var "aap_include_mcp_server=${AAP_INCLUDE_MCP_SERVER}" \
             -force ${{ env.PACKER_FILE }}
 
-      - name: Get built AMI ID
+      - name: Rename and keep built AMI
         if: steps.find-ami.outputs.ami_id == ''
         id: build-ami
         run: |
-          AMI_ID=$(jq -r '.builds[0].artifact_id' manifest.json | cut -d: -f2)
-          echo "Built new AMI: $AMI_ID"
+          TEMP_AMI_ID=$(jq -r '.builds[0].artifact_id' manifest.json | cut -d: -f2)
+          echo "Temporary AMI: $TEMP_AMI_ID"
+
+          VERSION="${{ github.event.inputs.aap_version }}"
+          FLAVOR="${{ steps.set-flavor.outputs.flavor }}"
+          FINAL_NAME="aap-${VERSION}-${FLAVOR}-$(date +%Y%m%d)"
+          echo "Renaming to: $FINAL_NAME"
+
+          AMI_ID=$(aws ec2 copy-image \
+            --source-image-id "$TEMP_AMI_ID" \
+            --source-region "${{ secrets.AWS_REGION || 'us-east-1' }}" \
+            --name "$FINAL_NAME" \
+            --description "AAP $VERSION $FLAVOR built on $(date +%Y-%m-%d)" \
+            --region "${{ secrets.AWS_REGION || 'us-east-1' }}" \
+            --query 'ImageId' \
+            --output text)
+
+          echo "Waiting for AMI $AMI_ID to be available..."
+          aws ec2 wait image-available --image-ids "$AMI_ID"
+
+          echo "Deregistering temporary AMI: $TEMP_AMI_ID"
+          aws ec2 deregister-image --image-id "$TEMP_AMI_ID"
+
+          echo "Final AMI: $AMI_ID ($FINAL_NAME)"
           echo "ami_id=$AMI_ID" >> $GITHUB_OUTPUT
 
   launch-instance:
