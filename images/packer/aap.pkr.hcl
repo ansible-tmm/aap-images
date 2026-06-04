@@ -114,7 +114,11 @@ source "amazon-ebs" "automation-controller" {
     ssh_keep_alive_interval = "5s"
     ssh_read_write_timeout = "90m"
     ami_name      = "aap-temp-${local.image_label}-${formatdate("YYYYMMDD", timestamp())}"
-    
+    aws_polling {
+        max_attempts = 120
+        delay_seconds = 30
+    }
+
     launch_block_device_mappings {
         device_name = "/dev/sda1"
         volume_size = 30

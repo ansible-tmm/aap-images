@@ -377,7 +377,7 @@ jobs:
 
           CONVERTER_INSTANCE=$(aws ec2 run-instances \
             --image-id $CONVERTER_AMI \
-            --instance-type t3.xlarge \
+            --instance-type m5.2xlarge \
             --key-name $KEY_NAME \
             --security-group-ids $TEMP_SG_ID \
             --instance-initiated-shutdown-behavior terminate \
