@@ -513,6 +513,7 @@ jobs:
           hub_admin_password=${ADMIN_PW}
           hub_pg_host=${HOSTNAME}
           hub_pg_password=${ADMIN_PW}
+          hub_seed_collections=true
 
           gateway_admin_password=${ADMIN_PW}
           gateway_pg_host=${HOSTNAME}
