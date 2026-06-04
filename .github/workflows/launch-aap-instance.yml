@@ -501,6 +501,8 @@ jobs:
           registry_username=${REGISTRY_USER}
           registry_password=${REGISTRY_PASS}
           redis_mode=standalone
+          bundle_install=true
+          bundle_dir=${INSTALLER_DIR}/bundle
 
           controller_admin_password=${ADMIN_PW}
           controller_pg_host=${HOSTNAME}
