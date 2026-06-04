@@ -43,6 +43,11 @@ on:
         description: 'BYOK custom knowledge image URL (2.7+ only, optional)'
         required: false
         type: string
+      seed_collections:
+        description: 'Seed Hub with collections (requires bundle install, uses more disk)'
+        required: false
+        type: boolean
+        default: false
       include_portal:
         description: 'Deploy Self-Service Automation Portal (separate instance)'
         required: false
@@ -454,6 +459,7 @@ jobs:
           REGISTRY_PASS="$7"
           BYOK_IMAGE="$8"
           AAP_VERSION="$9"
+          SEED_COLLECTIONS="${10}"
           HOSTNAME=$(hostname)
           INSTALLER_DIR="/tmp/ansible-automation-platform-containerized-setup"
 
@@ -506,8 +512,6 @@ jobs:
           registry_username=${REGISTRY_USER}
           registry_password=${REGISTRY_PASS}
           redis_mode=standalone
-          bundle_install=true
-          bundle_dir=${INSTALLER_DIR}/bundle
 
           controller_admin_password=${ADMIN_PW}
           controller_pg_host=${HOSTNAME}
@@ -520,7 +524,6 @@ jobs:
           hub_admin_password=${ADMIN_PW}
           hub_pg_host=${HOSTNAME}
           hub_pg_password=${ADMIN_PW}
-          hub_seed_collections=true
 
           gateway_admin_password=${ADMIN_PW}
           gateway_pg_host=${HOSTNAME}
@@ -547,6 +550,11 @@ jobs:
           if [ -n "$BYOK_IMAGE" ] && [ "$AAP_VERSION" == "2.7" ]; then
             printf 'lightspeed_chatbot_byok_image=%s\n' "$BYOK_IMAGE" >> "$INSTALLER_DIR/inventory.custom"
             echo "BYOK image configured: $BYOK_IMAGE"
+          fi
+
+          if [ "$SEED_COLLECTIONS" == "true" ]; then
+            printf 'bundle_install=true\nbundle_dir=%s/bundle\nhub_seed_collections=true\n' "$INSTALLER_DIR" >> "$INSTALLER_DIR/inventory.custom"
+            echo "Collection seeding enabled"
           fi
 
           echo "Inventory generated (sensitive values hidden)"
@@ -584,7 +592,7 @@ jobs:
           scp $SSH_OPTS /tmp/setup-lightspeed.sh ec2-user@$PUBLIC_IP:/tmp/
 
           ssh $SSH_OPTS ec2-user@$PUBLIC_IP \
-            "sudo bash /tmp/setup-lightspeed.sh '$INSTALLER_URL' '$ADMIN_PW' '$MODEL_URL' '$API_KEY' '$MODEL_ID' '$INSTALLER_REGISTRY_USER' '$INSTALLER_REGISTRY_PASS' '$BYOK_IMAGE' '$AAP_VERSION'"
+            "sudo bash /tmp/setup-lightspeed.sh '$INSTALLER_URL' '$ADMIN_PW' '$MODEL_URL' '$API_KEY' '$MODEL_ID' '$INSTALLER_REGISTRY_USER' '$INSTALLER_REGISTRY_PASS' '$BYOK_IMAGE' '$AAP_VERSION' '${{ github.event.inputs.seed_collections }}'"
 
           rm -f /tmp/setup-lightspeed.sh
           echo "Lightspeed configuration complete."
