@@ -43,6 +43,11 @@ on:
         description: 'BYOK custom knowledge image URL (2.7+ only, optional)'
         required: false
         type: string
+      include_portal:
+        description: 'Deploy Self-Service Automation Portal (separate instance)'
+        required: false
+        type: boolean
+        default: false
       instance_type:
         description: 'EC2 instance type'
         required: false
@@ -610,6 +615,165 @@ jobs:
             "https://$PUBLIC_IP/api/controller/v2/settings/system/" \
             -d "{\"TOWER_URL_BASE\": \"https://$PUBLIC_IP\"}" || echo "Failed to update TOWER_URL_BASE, may need manual configuration"
 
+      - name: Create OAuth app for portal
+        if: github.event.inputs.include_portal == 'true'
+        id: portal-oauth
+        run: |
+          PUBLIC_IP="${{ steps.get-ip.outputs.public_ip }}"
+
+          echo "Creating OAuth application on AAP for portal..."
+          OAUTH_RESPONSE=$(curl -sk -X POST \
+            -u "admin:${{ secrets.INSTALLER_ADMIN_PW }}" \
+            -H "Content-Type: application/json" \
+            "https://$PUBLIC_IP/api/gateway/v1/applications/" \
+            -d '{
+              "name": "automation-portal",
+              "organization": 1,
+              "authorization_grant_type": "authorization-code",
+              "redirect_uris": "https://placeholder/api/auth/rhaap/handler/frame",
+              "client_type": "confidential"
+            }')
+
+          CLIENT_ID=$(echo "$OAUTH_RESPONSE" | jq -r '.client_id')
+          CLIENT_SECRET=$(echo "$OAUTH_RESPONSE" | jq -r '.client_secret')
+          APP_ID=$(echo "$OAUTH_RESPONSE" | jq -r '.id')
+
+          echo "::add-mask::$CLIENT_SECRET"
+
+          echo "OAuth app created (ID: $APP_ID)"
+          echo "client_id=$CLIENT_ID" >> $GITHUB_OUTPUT
+          echo "client_secret=$CLIENT_SECRET" >> $GITHUB_OUTPUT
+          echo "app_id=$APP_ID" >> $GITHUB_OUTPUT
+
+          echo "Creating API token..."
+          TOKEN_RESPONSE=$(curl -sk -X POST \
+            -u "admin:${{ secrets.INSTALLER_ADMIN_PW }}" \
+            -H "Content-Type: application/json" \
+            "https://$PUBLIC_IP/api/gateway/v1/tokens/" \
+            -d '{}')
+
+          API_TOKEN=$(echo "$TOKEN_RESPONSE" | jq -r '.token')
+          echo "::add-mask::$API_TOKEN"
+          echo "api_token=$API_TOKEN" >> $GITHUB_OUTPUT
+
+      - name: Launch portal instance
+        if: github.event.inputs.include_portal == 'true'
+        id: launch-portal
+        run: |
+          AAP_IP="${{ steps.get-ip.outputs.public_ip }}"
+          CLIENT_ID="${{ steps.portal-oauth.outputs.client_id }}"
+          CLIENT_SECRET="${{ steps.portal-oauth.outputs.client_secret }}"
+          API_TOKEN="${{ steps.portal-oauth.outputs.api_token }}"
+          OWNER="${{ github.event.inputs.owner }}"
+          EXPIRES_AT="${{ steps.launch.outputs.expires_at }}"
+
+          SSH_PUB_KEY=""
+          if [ -f /tmp/workflow-key.pub ]; then
+            SSH_PUB_KEY=$(cat /tmp/workflow-key.pub)
+          fi
+
+          cat > /tmp/portal-userdata.yaml << EOF
+          #cloud-config
+
+          users:
+            - name: cloud-user
+              sudo: ALL=(ALL) NOPASSWD:ALL
+              ssh_authorized_keys:
+                - "$SSH_PUB_KEY"
+
+          aap:
+            host_url: "https://$AAP_IP"
+            token: "$API_TOKEN"
+            check_ssl: false
+            oauth:
+              client_id: "$CLIENT_ID"
+              client_secret: "$CLIENT_SECRET"
+
+          database:
+            type: builtin
+            builtin:
+              password: "auto"
+              admin_password: "auto"
+          EOF
+
+          SG_ID="${{ steps.create-sg.outputs.sg_id }}"
+
+          aws ec2 authorize-security-group-ingress \
+            --group-id $SG_ID \
+            --ip-permissions \
+              "IpProtocol=tcp,FromPort=7007,ToPort=7007,IpRanges=[{CidrIp=0.0.0.0/0,Description=Portal}]" 2>/dev/null || true
+
+          PORTAL_INSTANCE_ID=$(aws ec2 run-instances \
+            --image-id ami-04a53bb6363ca7ffc \
+            --instance-type t3.xlarge \
+            --security-group-ids "$SG_ID" \
+            --key-name "${{ steps.create-keypair.outputs.key_name }}" \
+            --user-data file:///tmp/portal-userdata.yaml \
+            --block-device-mappings '[{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":50,"VolumeType":"gp3","DeleteOnTermination":true}}]' \
+            --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=aap-portal-${OWNER}},{Key=owner,Value=${OWNER}},{Key=ExpiresAt,Value=${EXPIRES_AT}},{Key=Project,Value=aap-on-demand}]" \
+            --associate-public-ip-address \
+            --query 'Instances[0].InstanceId' \
+            --output text)
+
+          echo "Launched portal instance: $PORTAL_INSTANCE_ID"
+          echo "portal_instance_id=$PORTAL_INSTANCE_ID" >> $GITHUB_OUTPUT
+
+          aws ec2 wait instance-running --instance-ids "$PORTAL_INSTANCE_ID"
+
+          PORTAL_IP=$(aws ec2 describe-instances \
+            --instance-ids "$PORTAL_INSTANCE_ID" \
+            --query 'Reservations[0].Instances[0].PublicIpAddress' \
+            --output text)
+
+          echo "Portal IP: $PORTAL_IP"
+          echo "portal_ip=$PORTAL_IP" >> $GITHUB_OUTPUT
+
+      - name: Configure portal
+        if: github.event.inputs.include_portal == 'true'
+        run: |
+          PORTAL_IP="${{ steps.launch-portal.outputs.portal_ip }}"
+          AAP_IP="${{ steps.get-ip.outputs.public_ip }}"
+          APP_ID="${{ steps.portal-oauth.outputs.app_id }}"
+          SSH_OPTS="-o StrictHostKeyChecking=no -o ServerAliveInterval=30 -i /tmp/workflow-key"
+
+          echo "Waiting for portal SSH..."
+          for i in {1..30}; do
+            if nc -z -w5 $PORTAL_IP 22 2>/dev/null; then
+              echo "SSH available"
+              break
+            fi
+            sleep 10
+          done
+
+          echo "Creating portal flag files..."
+          ssh $SSH_OPTS cloud-user@$PORTAL_IP "sudo touch /etc/portal/.config-ready /etc/portal/.setup-complete"
+
+          echo "Updating OAuth redirect URI to portal IP..."
+          curl -sk -X PATCH \
+            -u "admin:${{ secrets.INSTALLER_ADMIN_PW }}" \
+            -H "Content-Type: application/json" \
+            "https://$AAP_IP/api/gateway/v1/applications/$APP_ID/" \
+            -d "{\"redirect_uris\": \"https://$PORTAL_IP/api/auth/rhaap/handler/frame\"}"
+
+          echo "Waiting for portal to be healthy..."
+          for i in {1..60}; do
+            HTTP_CODE=$(curl -sk -o /dev/null -w "%{http_code}" \
+              "https://$PORTAL_IP/.backstage/health/v1/readiness" 2>/dev/null || echo "000")
+
+            if [ "$HTTP_CODE" == "200" ]; then
+              echo "Portal is healthy (attempt $i)"
+              break
+            fi
+
+            if [ $i -eq 60 ]; then
+              echo "WARNING: Portal did not become healthy after 10 minutes"
+              echo "It may still be initializing plugins. Try https://$PORTAL_IP in a few minutes."
+            fi
+
+            echo "Attempt $i: HTTP $HTTP_CODE, waiting..."
+            sleep 10
+          done
+
       - name: Generate build summary
         run: |
           PUBLIC_IP="${{ steps.get-ip.outputs.public_ip }}"
@@ -638,7 +802,19 @@ jobs:
           echo "- EDA: ${{ github.event.inputs.include_eda }}" >> $GITHUB_STEP_SUMMARY
           echo "- Hub: ${{ github.event.inputs.include_hub }}" >> $GITHUB_STEP_SUMMARY
           echo "- Lightspeed: ${{ github.event.inputs.include_lightspeed }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Portal: ${{ github.event.inputs.include_portal }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ github.event.inputs.include_portal }}" == "true" ]; then
+            PORTAL_IP="${{ steps.launch-portal.outputs.portal_ip }}"
+            PORTAL_INSTANCE_ID="${{ steps.launch-portal.outputs.portal_instance_id }}"
+            echo "### Self-Service Portal" >> $GITHUB_STEP_SUMMARY
+            echo "| Detail | Value |" >> $GITHUB_STEP_SUMMARY
+            echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+            echo "| **Portal URL** | https://$PORTAL_IP |" >> $GITHUB_STEP_SUMMARY
+            echo "| **Portal Instance ID** | $PORTAL_INSTANCE_ID |" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
 
           if [ -n "${{ github.event.inputs.ssh_key_name }}" ]; then
             echo "### SSH Access" >> $GITHUB_STEP_SUMMARY
