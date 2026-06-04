@@ -682,9 +682,22 @@ jobs:
           OWNER="${{ github.event.inputs.owner }}"
           EXPIRES_AT="${{ steps.launch.outputs.expires_at }}"
 
-          SSH_PUB_KEY=""
+          SSH_KEYS=""
           if [ -f /tmp/workflow-key.pub ]; then
-            SSH_PUB_KEY=$(cat /tmp/workflow-key.pub)
+            SSH_KEYS="                - \"$(cat /tmp/workflow-key.pub)\""
+          fi
+
+          USER_KEY="${{ github.event.inputs.ssh_key_name }}"
+          if [ -n "$USER_KEY" ]; then
+            USER_KEY_PUB=$(aws ec2 describe-key-pairs \
+              --key-names "$USER_KEY" \
+              --include-public-key \
+              --query 'KeyPairs[0].PublicKey' \
+              --output text 2>/dev/null || echo "")
+            if [ -n "$USER_KEY_PUB" ] && [ "$USER_KEY_PUB" != "None" ]; then
+              SSH_KEYS="${SSH_KEYS}
+                - \"${USER_KEY_PUB}\""
+            fi
           fi
 
           GITHUB_TOKEN="${{ github.event.inputs.portal_github_token }}"
@@ -696,7 +709,7 @@ jobs:
             - name: cloud-user
               sudo: ALL=(ALL) NOPASSWD:ALL
               ssh_authorized_keys:
-                - "$SSH_PUB_KEY"
+          ${SSH_KEYS}
 
           aap:
             host_url: "https://$AAP_IP"
