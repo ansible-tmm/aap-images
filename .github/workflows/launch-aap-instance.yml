@@ -48,10 +48,6 @@ on:
         required: false
         type: boolean
         default: false
-      portal_github_token:
-        description: 'GitHub PAT for Portal EE Builder (optional, enables publish to GitHub)'
-        required: false
-        type: string
       instance_type:
         description: 'EC2 instance type'
         required: false
@@ -413,9 +409,6 @@ jobs:
           if [ -n "${{ github.event.inputs.lightspeed_byok_image }}" ]; then
             echo "::add-mask::${{ github.event.inputs.lightspeed_byok_image }}"
           fi
-          if [ -n "${{ github.event.inputs.portal_github_token }}" ]; then
-            echo "::add-mask::${{ github.event.inputs.portal_github_token }}"
-          fi
 
       - name: Configure Lightspeed via installer re-run
         if: github.event.inputs.include_lightspeed == 'true'
@@ -700,8 +693,6 @@ jobs:
             fi
           fi
 
-          GITHUB_TOKEN="${{ github.event.inputs.portal_github_token }}"
-
           cat > /tmp/portal-userdata.yaml << EOF
           #cloud-config
 
@@ -725,16 +716,6 @@ jobs:
               password: "auto"
               admin_password: "auto"
           EOF
-
-          if [ -n "$GITHUB_TOKEN" ]; then
-            cat >> /tmp/portal-userdata.yaml << GHEOF
-
-          integrations:
-            github:
-              url: "github.com"
-              token: "$GITHUB_TOKEN"
-          GHEOF
-          fi
 
           SG_ID="${{ steps.create-sg.outputs.sg_id }}"
 
@@ -786,7 +767,10 @@ jobs:
           done
 
           echo "Creating portal flag files and enabling PAH collection sync..."
-          ssh $SSH_OPTS cloud-user@$PORTAL_IP "sudo touch /etc/portal/.config-ready /etc/portal/.setup-complete && sudo python3 /usr/local/lib/portal/yaml-helper.py write /etc/portal/configs/app-config/app-config.production.yaml 'catalog.providers.rhaap.production.sync.pahCollections.enabled' 'true' 2>/dev/null || true"
+          ssh $SSH_OPTS cloud-user@$PORTAL_IP "sudo touch /etc/portal/.config-ready /etc/portal/.setup-complete"
+
+          echo "Adding PAH collection sync config..."
+          ssh $SSH_OPTS cloud-user@$PORTAL_IP "sudo sed -i '/^#.*pahCollections:/,/^#.*minutes: 120/{s/^#//; s/enabled: false/enabled: true/}' /etc/portal/configs/app-config/app-config.production.yaml"
 
           echo "Updating OAuth redirect URI to portal IP..."
           curl -sk -X PATCH \
