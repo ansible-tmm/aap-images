@@ -716,7 +716,6 @@ jobs:
             --image-id ami-04a53bb6363ca7ffc \
             --instance-type t3.xlarge \
             --security-group-ids "$SG_ID" \
-            --key-name "${{ steps.create-keypair.outputs.key_name }}" \
             --user-data file:///tmp/portal-userdata.yaml \
             --block-device-mappings '[{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":50,"VolumeType":"gp3","DeleteOnTermination":true}}]' \
             --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=aap-portal-${OWNER}},{Key=owner,Value=${OWNER}},{Key=ExpiresAt,Value=${EXPIRES_AT}},{Key=Project,Value=aap-on-demand}]" \
