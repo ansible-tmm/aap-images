@@ -115,13 +115,13 @@ source "amazon-ebs" "automation-controller" {
     ssh_read_write_timeout = "90m"
     ami_name      = "aap-temp-${local.image_label}-${formatdate("YYYYMMDD", timestamp())}"
     aws_polling {
-        max_attempts = 240
+        max_attempts = 180
         delay_seconds = 30
     }
 
     launch_block_device_mappings {
         device_name = "/dev/sda1"
-        volume_size = 30
+        volume_size = 40
         volume_type = "gp3"
         delete_on_termination = true
     }
