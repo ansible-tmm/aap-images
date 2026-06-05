@@ -683,11 +683,12 @@ jobs:
           OWNER="${{ github.event.inputs.owner }}"
           EXPIRES_AT="${{ steps.launch.outputs.expires_at }}"
 
-          SSH_KEYS=""
+          WORKFLOW_KEY=""
           if [ -f /tmp/workflow-key.pub ]; then
-            SSH_KEYS="                - \"$(cat /tmp/workflow-key.pub)\""
+            WORKFLOW_KEY=$(cat /tmp/workflow-key.pub)
           fi
 
+          USER_KEY_PUB=""
           USER_KEY="${{ github.event.inputs.ssh_key_name }}"
           if [ -n "$USER_KEY" ]; then
             USER_KEY_PUB=$(aws ec2 describe-key-pairs \
@@ -695,35 +696,14 @@ jobs:
               --include-public-key \
               --query 'KeyPairs[0].PublicKey' \
               --output text 2>/dev/null || echo "")
-            if [ -n "$USER_KEY_PUB" ] && [ "$USER_KEY_PUB" != "None" ]; then
-              SSH_KEYS="${SSH_KEYS}
-                - \"${USER_KEY_PUB}\""
+            if [ "$USER_KEY_PUB" == "None" ]; then
+              USER_KEY_PUB=""
             fi
           fi
 
-          cat > /tmp/portal-userdata.yaml << EOF
-          #cloud-config
-
-          users:
-            - name: cloud-user
-              sudo: ALL=(ALL) NOPASSWD:ALL
-              ssh_authorized_keys:
-          ${SSH_KEYS}
-
-          aap:
-            host_url: "https://$AAP_IP"
-            token: "$API_TOKEN"
-            check_ssl: false
-            oauth:
-              client_id: "$CLIENT_ID"
-              client_secret: "$CLIENT_SECRET"
-
-          database:
-            type: builtin
-            builtin:
-              password: "auto"
-              admin_password: "auto"
-          EOF
+          printf '#cloud-config\n\nusers:\n  - name: cloud-user\n    sudo: ALL=(ALL) NOPASSWD:ALL\n    ssh_authorized_keys:\n      - "%s"\n      - "%s"\n\naap:\n  host_url: "https://%s"\n  token: "%s"\n  check_ssl: false\n  oauth:\n    client_id: "%s"\n    client_secret: "%s"\n\ndatabase:\n  type: builtin\n  builtin:\n    password: "auto"\n    admin_password: "auto"\n' \
+            "$WORKFLOW_KEY" "$USER_KEY_PUB" "$AAP_IP" "$API_TOKEN" "$CLIENT_ID" "$CLIENT_SECRET" \
+            > /tmp/portal-userdata.yaml
 
           SG_ID="${{ steps.create-sg.outputs.sg_id }}"
 
