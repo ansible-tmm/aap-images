@@ -758,7 +758,10 @@ jobs:
           ssh $SSH_OPTS cloud-user@$PORTAL_IP "sudo touch /etc/portal/.config-ready /etc/portal/.setup-complete"
 
           echo "Adding PAH collection sync config..."
-          ssh $SSH_OPTS cloud-user@$PORTAL_IP "sudo sed -i '/^#.*pahCollections:/,/^#.*minutes: 120/{s/^#//; s/enabled: false/enabled: true/}' /etc/portal/configs/app-config/app-config.production.yaml"
+          printf '          pahCollections:\n            enabled: true\n            repositories:\n              - name: validated\n                schedule:\n                  frequency:\n                    days: 10\n                  timeout:\n                    minutes: 60\n              - name: published\n                schedule:\n                  frequency:\n                    days: 10\n                  timeout:\n                    minutes: 30\n              - name: rh-certified\n                schedule:\n                  frequency:\n                    days: 10\n                  timeout:\n                    minutes: 120\n' > /tmp/pah-config.txt
+          scp $SSH_OPTS /tmp/pah-config.txt cloud-user@$PORTAL_IP:/tmp/pah-config.txt
+          ssh $SSH_OPTS cloud-user@$PORTAL_IP "sudo sed -i '/orgsUsersTeams:/,/seconds: 30/{/seconds: 30/r /tmp/pah-config.txt
+          }' /etc/portal/configs/app-config/app-config.production.yaml && rm /tmp/pah-config.txt"
 
           echo "Updating OAuth redirect URI to portal IP..."
           curl -sk -X PATCH \
