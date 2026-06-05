@@ -92,12 +92,6 @@ eda_pg_password={{ installer_admin_pw }}
 hub_admin_password={{ installer_admin_pw }}
 hub_pg_host={{ installer_fqdn_hostname }}
 hub_pg_password={{ installer_admin_pw }}
-{% if aap_version is defined and aap_version is version('2.7', '>=') %}
-hub_seed_collections=true
-{% else %}
-automationhub_seed_collections=true
-automationhub_collection_seed_repository=validated
-{% endif %}
 {% endif %}
 
 # AAP Gateway - mandatory
