@@ -863,7 +863,11 @@ jobs:
         run: |
           KEY_NAME="${{ steps.create-keypair.outputs.key_name }}"
           if [ -n "$KEY_NAME" ] && [ "$KEY_NAME" != "null" ]; then
-            aws ec2 delete-key-pair --key-name "$KEY_NAME" || true
-            echo "Deleted workflow key pair: $KEY_NAME"
+            if [ "${{ steps.launch.outputs.instance_id }}" == "" ]; then
+              aws ec2 delete-key-pair --key-name "$KEY_NAME" || true
+              echo "Deleted workflow key pair: $KEY_NAME (no instance launched)"
+            else
+              echo "Keeping workflow key pair: $KEY_NAME (attached to running instances)"
+            fi
           fi
           rm -f /tmp/workflow-key /tmp/workflow-key.pub /tmp/user-data.yml
