@@ -435,8 +435,32 @@ jobs:
             sleep 10
           done
 
-          echo "Running qcow2 conversion (this may take 10-15 minutes)..."
-          ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=240 -o TCPKeepAlive=yes -i /tmp/converter-key ec2-user@$PUBLIC_IP "export AWS_ACCESS_KEY_ID='$AWS_ACCESS_KEY_ID' && export AWS_SECRET_ACCESS_KEY='$AWS_SECRET_ACCESS_KEY' && export AWS_DEFAULT_REGION='$AWS_DEFAULT_REGION' && echo 'Downloading raw image...' && aws s3 cp s3://$S3_BUCKET/$S3_KEY /tmp/$RAW_FILE --no-progress && echo 'Converting to qcow2...' && qemu-img convert -f raw -O qcow2 /tmp/$RAW_FILE /tmp/$QCOW2_FILE && echo 'Removing raw file...' && rm -f /tmp/$RAW_FILE && echo 'Uploading qcow2...' && aws s3 cp /tmp/$QCOW2_FILE s3://$S3_BUCKET/$QCOW2_S3_KEY --no-progress && echo 'Cleanup complete' && rm -f /tmp/$QCOW2_FILE"
+          echo "Running qcow2 conversion..."
+          printf '#!/bin/bash\nset -e\nexec > /tmp/convert.log 2>&1\necho "Downloading raw image..."\naws s3 cp "s3://$S3_BUCKET/$S3_KEY" "/tmp/$RAW_FILE" --no-progress\necho "Converting to qcow2..."\nqemu-img convert -f raw -O qcow2 "/tmp/$RAW_FILE" "/tmp/$QCOW2_FILE"\necho "Removing raw file..."\nrm -f "/tmp/$RAW_FILE"\necho "Uploading qcow2..."\naws s3 cp "/tmp/$QCOW2_FILE" "s3://$S3_BUCKET/$QCOW2_S3_KEY" --no-progress\nrm -f "/tmp/$QCOW2_FILE"\necho "CONVERSION_COMPLETE"\n' > /tmp/convert.sh
+
+          scp -o StrictHostKeyChecking=no -i /tmp/converter-key /tmp/convert.sh ec2-user@$PUBLIC_IP:/tmp/convert.sh
+
+          ssh -o StrictHostKeyChecking=no -i /tmp/converter-key ec2-user@$PUBLIC_IP "export AWS_ACCESS_KEY_ID='$AWS_ACCESS_KEY_ID' && export AWS_SECRET_ACCESS_KEY='$AWS_SECRET_ACCESS_KEY' && export AWS_DEFAULT_REGION='$AWS_DEFAULT_REGION' && nohup bash /tmp/convert.sh &"
+
+          echo "Waiting for conversion to complete..."
+          for i in $(seq 1 120); do
+            sleep 30
+            RESULT=$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i /tmp/converter-key ec2-user@$PUBLIC_IP "tail -1 /tmp/convert.log 2>/dev/null" 2>/dev/null || echo "waiting")
+            echo "Check $i - $RESULT"
+            if echo "$RESULT" | grep -q "CONVERSION_COMPLETE"; then
+              echo "Conversion completed successfully!"
+              break
+            fi
+            if echo "$RESULT" | grep -qi "error"; then
+              echo "Conversion failed!"
+              ssh -o StrictHostKeyChecking=no -i /tmp/converter-key ec2-user@$PUBLIC_IP "cat /tmp/convert.log" 2>/dev/null || true
+              exit 1
+            fi
+            if [ $i -eq 120 ]; then
+              echo "Conversion timed out after 60 minutes"
+              exit 1
+            fi
+          done
 
           echo "Terminating converter instance..."
           aws ec2 terminate-instances --instance-ids $CONVERTER_INSTANCE
