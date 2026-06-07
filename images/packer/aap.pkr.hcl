@@ -121,7 +121,7 @@ source "amazon-ebs" "automation-controller" {
 
     launch_block_device_mappings {
         device_name = "/dev/sda1"
-        volume_size = 60
+        volume_size = 40
         volume_type = "gp3"
         delete_on_termination = true
     }
@@ -210,6 +210,17 @@ build {
         extra_arguments = local.extra_args
     }
 
+
+    // Cleanup to reduce AMI snapshot size
+    provisioner "shell" {
+        inline = [
+            "sudo dnf clean all",
+            "sudo rm -rf /tmp/* /var/tmp/*",
+            "sudo rm -rf /var/cache/dnf/*",
+            "sudo rm -f /root/.bash_history /home/rhel/.bash_history /home/ec2-user/.bash_history",
+            "sync"
+        ]
+    }
 
     post-processor "manifest" {
         output = "manifest.json"
