@@ -436,11 +436,18 @@ jobs:
           done
 
           echo "Running qcow2 conversion..."
-          printf '#!/bin/bash\nset -e\nexec > /tmp/convert.log 2>&1\necho "Downloading raw image..."\naws s3 cp "s3://$S3_BUCKET/$S3_KEY" "/tmp/$RAW_FILE" --no-progress\necho "Converting to qcow2..."\nqemu-img convert -f raw -O qcow2 "/tmp/$RAW_FILE" "/tmp/$QCOW2_FILE"\necho "Removing raw file..."\nrm -f "/tmp/$RAW_FILE"\necho "Uploading qcow2..."\naws s3 cp "/tmp/$QCOW2_FILE" "s3://$S3_BUCKET/$QCOW2_S3_KEY" --no-progress\nrm -f "/tmp/$QCOW2_FILE"\necho "CONVERSION_COMPLETE"\n' > /tmp/convert.sh
+          printf '#!/bin/bash\nset -e\nexec > /tmp/convert.log 2>&1\nexport AWS_ACCESS_KEY_ID="%s"\nexport AWS_SECRET_ACCESS_KEY="%s"\nexport AWS_DEFAULT_REGION="%s"\necho "Downloading raw image..."\naws s3 cp "s3://%s/%s" "/tmp/%s" --no-progress\necho "Converting to qcow2..."\nqemu-img convert -f raw -O qcow2 "/tmp/%s" "/tmp/%s"\necho "Removing raw file..."\nrm -f "/tmp/%s"\necho "Uploading qcow2..."\naws s3 cp "/tmp/%s" "s3://%s/%s" --no-progress\nrm -f "/tmp/%s"\necho "CONVERSION_COMPLETE"\n' \
+            "$AWS_ACCESS_KEY_ID" "$AWS_SECRET_ACCESS_KEY" "$AWS_DEFAULT_REGION" \
+            "$S3_BUCKET" "$S3_KEY" "$RAW_FILE" \
+            "$RAW_FILE" "$QCOW2_FILE" \
+            "$RAW_FILE" \
+            "$QCOW2_FILE" "$S3_BUCKET" "$QCOW2_S3_KEY" \
+            "$QCOW2_FILE" \
+            > /tmp/convert.sh
 
           scp -o StrictHostKeyChecking=no -i /tmp/converter-key /tmp/convert.sh ec2-user@$PUBLIC_IP:/tmp/convert.sh
 
-          ssh -o StrictHostKeyChecking=no -i /tmp/converter-key ec2-user@$PUBLIC_IP "export AWS_ACCESS_KEY_ID='$AWS_ACCESS_KEY_ID' && export AWS_SECRET_ACCESS_KEY='$AWS_SECRET_ACCESS_KEY' && export AWS_DEFAULT_REGION='$AWS_DEFAULT_REGION' && nohup bash /tmp/convert.sh &"
+          ssh -o StrictHostKeyChecking=no -i /tmp/converter-key ec2-user@$PUBLIC_IP "nohup bash /tmp/convert.sh &"
 
           echo "Waiting for conversion to complete..."
           for i in $(seq 1 120); do
