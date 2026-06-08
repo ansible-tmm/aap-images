@@ -152,6 +152,8 @@ jobs:
 
       - name: Build AAP Image
         if: steps.check-raw.outputs.raw_exists != 'true'
+        id: packer-build
+        continue-on-error: true
         run: |
           echo "AWS_DEFAULT_REGION: $AWS_DEFAULT_REGION"
           echo "AWS_REGION: $AWS_REGION"
@@ -164,6 +166,29 @@ jobs:
             -var "aap_include_automation_hub=${AAP_INCLUDE_AUTOMATION_HUB}" \
             -var "aap_include_mcp_server=${AAP_INCLUDE_MCP_SERVER}" \
             -force ${{ env.PACKER_FILE }}
+
+      - name: Recover AMI if Packer timed out
+        if: steps.check-raw.outputs.raw_exists != 'true' && steps.packer-build.outcome == 'failure'
+        run: |
+          echo "Packer failed, checking if AMI was created anyway..."
+          FLAVOR_LOWER=$(echo "${{ matrix.flavor }}" | tr '[:upper:]' '[:lower:]')
+          AMI_ID=$(aws ec2 describe-images --owners self \
+            --filters "Name=name,Values=aap-temp-*${FLAVOR_LOWER}*" "Name=state,Values=available,pending" \
+            --query 'Images | sort_by(@, &CreationDate) | [-1].ImageId' \
+            --output text)
+
+          if [ -n "$AMI_ID" ] && [ "$AMI_ID" != "None" ]; then
+            AMI_STATE=$(aws ec2 describe-images --image-ids "$AMI_ID" --query 'Images[0].State' --output text)
+            if [ "$AMI_STATE" == "pending" ]; then
+              echo "AMI $AMI_ID is still being created, waiting..."
+              aws ec2 wait image-available --image-ids "$AMI_ID"
+            fi
+            echo "AMI $AMI_ID recovered successfully"
+            jq -n --arg ami "$AMI_ID" "{\"builds\":[{\"artifact_id\":\"${{ secrets.AWS_REGION || 'us-east-1' }}:\($ami)\"}]}" > manifest.json
+          else
+            echo "ERROR: No AMI found. The build failed before AMI creation."
+            exit 1
+          fi
 
       - name: Get AMI ID and rename with version
         if: steps.check-raw.outputs.raw_exists != 'true'
@@ -381,7 +406,7 @@ jobs:
             --key-name $KEY_NAME \
             --security-group-ids $TEMP_SG_ID \
             --instance-initiated-shutdown-behavior terminate \
-            --block-device-mappings '[{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":100,"VolumeType":"gp3","DeleteOnTermination":true}}]' \
+            --block-device-mappings '[{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":200,"VolumeType":"gp3","DeleteOnTermination":true}}]' \
             --user-data file:///tmp/user-data.sh \
             --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=qcow2-converter},{Key=Purpose,Value=temporary}]" \
             --query 'Instances[0].InstanceId' \
@@ -450,21 +475,24 @@ jobs:
           ssh -o StrictHostKeyChecking=no -i /tmp/converter-key ec2-user@$PUBLIC_IP "nohup bash /tmp/convert.sh &"
 
           echo "Waiting for conversion to complete..."
-          for i in $(seq 1 120); do
+          for i in $(seq 1 180); do
             sleep 30
-            RESULT=$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i /tmp/converter-key ec2-user@$PUBLIC_IP "tail -1 /tmp/convert.log 2>/dev/null" 2>/dev/null || echo "waiting")
-            echo "Check $i - $RESULT"
-            if echo "$RESULT" | grep -q "CONVERSION_COMPLETE"; then
+            RESULT=$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i /tmp/converter-key ec2-user@$PUBLIC_IP "tail -1 /tmp/convert.log 2>/dev/null; echo '---'; pgrep -f convert.sh > /dev/null 2>&1 && echo 'RUNNING' || echo 'STOPPED'" 2>/dev/null || echo "waiting---SSH_FAIL")
+            LOG_LINE=$(echo "$RESULT" | head -1)
+            PROC_STATE=$(echo "$RESULT" | tail -1)
+            echo "Check $i - log: $LOG_LINE | process: $PROC_STATE"
+            if echo "$LOG_LINE" | grep -q "CONVERSION_COMPLETE"; then
               echo "Conversion completed successfully!"
               break
             fi
-            if echo "$RESULT" | grep -qi "error"; then
-              echo "Conversion failed!"
-              ssh -o StrictHostKeyChecking=no -i /tmp/converter-key ec2-user@$PUBLIC_IP "cat /tmp/convert.log" 2>/dev/null || true
+            if [ "$PROC_STATE" == "STOPPED" ] && [ "$LOG_LINE" != "CONVERSION_COMPLETE" ]; then
+              echo "Conversion process died!"
+              ssh -o StrictHostKeyChecking=no -i /tmp/converter-key ec2-user@$PUBLIC_IP "cat /tmp/convert.log; echo '---'; df -h /tmp" 2>/dev/null || true
               exit 1
             fi
-            if [ $i -eq 120 ]; then
-              echo "Conversion timed out after 60 minutes"
+            if [ $i -eq 180 ]; then
+              echo "Conversion timed out after 90 minutes"
+              ssh -o StrictHostKeyChecking=no -i /tmp/converter-key ec2-user@$PUBLIC_IP "cat /tmp/convert.log; echo '---'; df -h /tmp" 2>/dev/null || true
               exit 1
             fi
           done
