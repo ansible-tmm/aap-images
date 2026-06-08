@@ -129,10 +129,6 @@ jobs:
             LABELS="${LABELS}h"
           fi
 
-          if [ "${{ github.event.inputs.aap_version }}" == "2.6" ] || [ "${{ github.event.inputs.aap_version }}" == "2.7" ]; then
-            LABELS="${LABELS}m"
-          fi
-
           echo "flavor=$LABELS" >> $GITHUB_OUTPUT
           echo "Flavor label: $LABELS"
 
@@ -144,12 +140,15 @@ jobs:
           PATTERN1="aap-${VERSION}-${FLAVOR}-*"
           PATTERN2="aap-${VERSION}.*-${FLAVOR}-*"
           PATTERN3="aap-temp-${FLAVOR}-*"
+          PATTERN4="aap-${VERSION}-${FLAVOR}m-*"
+          PATTERN5="aap-${VERSION}.*-${FLAVOR}m-*"
+          PATTERN6="aap-temp-${FLAVOR}m-*"
 
-          echo "Searching for AMI matching: $PATTERN1, $PATTERN2, or $PATTERN3"
+          echo "Searching for AMI matching: ${FLAVOR} or ${FLAVOR}m variants"
 
           AMI_ID=$(aws ec2 describe-images \
             --owners self \
-            --filters "Name=name,Values=${PATTERN1},${PATTERN2},${PATTERN3}" \
+            --filters "Name=name,Values=${PATTERN1},${PATTERN2},${PATTERN3},${PATTERN4},${PATTERN5},${PATTERN6}" \
                       "Name=state,Values=available" \
             --query 'Images | sort_by(@, &CreationDate) | [-1].ImageId' \
             --output text)
