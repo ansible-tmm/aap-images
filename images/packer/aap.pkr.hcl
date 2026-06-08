@@ -115,7 +115,7 @@ source "amazon-ebs" "automation-controller" {
     ssh_read_write_timeout = "90m"
     ami_name      = "aap-temp-${local.image_label}-${formatdate("YYYYMMDD", timestamp())}"
     aws_polling {
-        max_attempts = 180
+        max_attempts = 600
         delay_seconds = 30
     }
 
