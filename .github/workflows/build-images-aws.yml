@@ -74,6 +74,54 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION || 'us-east-1' }}
 
+      - name: Check for existing AMI
+        id: check-ami
+        run: |
+          VERSION="${{ github.event.inputs.aap_version }}"
+          FLAVOR_LOWER=$(echo "${{ matrix.flavor }}" | tr '[:upper:]' '[:lower:]')
+
+          echo "Checking for existing AMI for version $VERSION..."
+
+          AMI_ID=$(aws ec2 describe-images --owners self \
+            --filters "Name=name,Values=aap-${VERSION}*-${FLAVOR_LOWER}-*,aap-${VERSION}*-${FLAVOR_LOWER}m-*" \
+                      "Name=state,Values=available" \
+            --query 'Images | sort_by(@, &CreationDate) | [-1].ImageId' \
+            --output text)
+
+          if [ -n "$AMI_ID" ] && [ "$AMI_ID" != "None" ]; then
+            AMI_NAME=$(aws ec2 describe-images --image-ids "$AMI_ID" --query 'Images[0].Name' --output text)
+            echo "Found existing AMI: $AMI_ID ($AMI_NAME), skipping build"
+            echo "ami_exists=true" >> $GITHUB_OUTPUT
+            echo "ami_id=$AMI_ID" >> $GITHUB_OUTPUT
+          else
+            echo "No existing AMI found, build required"
+            echo "ami_exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Check for existing qcow2
+        id: check-qcow2
+        run: |
+          S3_BUCKET="${{ secrets.S3_BUCKET_NAME || 'aap-qcow2-images' }}"
+          FLAVOR_LOWER=$(echo "${{ matrix.flavor }}" | tr '[:upper:]' '[:lower:]')
+          VERSION="${{ github.event.inputs.aap_version }}"
+
+          echo "Checking for existing qcow2 in S3..."
+
+          QCOW2_KEY=$(aws s3api list-objects-v2 \
+            --bucket "$S3_BUCKET" \
+            --prefix "aap-images/" \
+            --query "Contents[?contains(Key, '.qcow2') && contains(Key, '${VERSION}') && (contains(Key, '${FLAVOR_LOWER}-') || contains(Key, '${FLAVOR_LOWER}m-'))].Key | [0]" \
+            --output text 2>/dev/null || echo "None")
+
+          if [ -n "$QCOW2_KEY" ] && [ "$QCOW2_KEY" != "None" ]; then
+            echo "Found existing qcow2: $QCOW2_KEY"
+            echo "qcow2_exists=true" >> $GITHUB_OUTPUT
+            echo "s3_url=s3://$S3_BUCKET/$QCOW2_KEY" >> $GITHUB_OUTPUT
+          else
+            echo "No existing qcow2 found"
+            echo "qcow2_exists=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Check for existing raw image from last 24 hours
         id: check-raw
         env:
@@ -103,18 +151,18 @@ jobs:
           fi
 
       - name: Set up Packer
-        if: steps.check-raw.outputs.raw_exists != 'true'
+        if: steps.check-ami.outputs.ami_exists != 'true' && steps.check-raw.outputs.raw_exists != 'true'
         uses: hashicorp/setup-packer@main
         with:
           version: ${{ env.PACKER_VERSION }}
 
       - name: Run `packer init`
-        if: steps.check-raw.outputs.raw_exists != 'true'
+        if: steps.check-ami.outputs.ami_exists != 'true' && steps.check-raw.outputs.raw_exists != 'true'
         id: init
         run: "packer init ${{ env.PACKER_FILE }}"
 
       - name: Run `packer validate`
-        if: steps.check-raw.outputs.raw_exists != 'true'
+        if: steps.check-ami.outputs.ami_exists != 'true' && steps.check-raw.outputs.raw_exists != 'true'
         id: validate
         run: "packer validate ${{ env.PACKER_FILE }}"
 
@@ -151,7 +199,7 @@ jobs:
           echo "AAP_INCLUDE_MCP_SERVER=${AAP_INCLUDE_MCP_SERVER}" >> $GITHUB_ENV
 
       - name: Build AAP Image
-        if: steps.check-raw.outputs.raw_exists != 'true'
+        if: steps.check-ami.outputs.ami_exists != 'true' && steps.check-raw.outputs.raw_exists != 'true'
         id: packer-build
         continue-on-error: true
         run: |
@@ -168,7 +216,7 @@ jobs:
             -force ${{ env.PACKER_FILE }}
 
       - name: Recover AMI if Packer timed out
-        if: steps.check-raw.outputs.raw_exists != 'true' && steps.packer-build.outcome == 'failure'
+        if: steps.check-ami.outputs.ami_exists != 'true' && steps.check-raw.outputs.raw_exists != 'true' && steps.packer-build.outcome == 'failure'
         run: |
           echo "Packer failed, checking if AMI was created anyway..."
           FLAVOR_LOWER=$(echo "${{ matrix.flavor }}" | tr '[:upper:]' '[:lower:]')
@@ -191,7 +239,7 @@ jobs:
           fi
 
       - name: Get AMI ID and rename with version
-        if: steps.check-raw.outputs.raw_exists != 'true'
+        if: steps.check-ami.outputs.ami_exists != 'true' && steps.check-raw.outputs.raw_exists != 'true'
         id: get-ami
         run: |
           # Get the temporary AMI ID
@@ -211,8 +259,9 @@ jobs:
             echo "Using version from URL fallback: $AAP_VERSION"
           fi
           
-          # Create final AMI name with version (convert flavor to lowercase)
-          FLAVOR_LOWER=$(echo "${{ matrix.flavor }}" | tr '[:upper:]' '[:lower:]')
+          # Extract flavor from Packer's temp AMI name (e.g., aap-temp-cehm-20260608 -> cehm)
+          TEMP_AMI_NAME=$(aws ec2 describe-images --image-ids "$TEMP_AMI_ID" --query 'Images[0].Name' --output text)
+          FLAVOR_LOWER=$(echo "$TEMP_AMI_NAME" | sed 's/aap-temp-//' | sed 's/-[0-9]*$//')
           FINAL_NAME="aap-$AAP_VERSION-$FLAVOR_LOWER-$(date +%Y%m%d)"
           echo "Final AMI name: $FINAL_NAME"
           
@@ -243,13 +292,13 @@ jobs:
           echo "Final AMI ready: $NEW_AMI_ID ($FINAL_NAME)"
 
       - name: Export AMI to S3 as raw
-        if: steps.check-raw.outputs.raw_exists != 'true'
+        if: steps.check-qcow2.outputs.qcow2_exists != 'true' && steps.check-raw.outputs.raw_exists != 'true'
         id: export-ami
         env:
           AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
         run: |
           # Set variables
-          AMI_ID="${{ steps.get-ami.outputs.ami_id }}"
+          AMI_ID="${{ steps.get-ami.outputs.ami_id || steps.check-ami.outputs.ami_id }}"
           S3_BUCKET="${{ secrets.S3_BUCKET_NAME || 'aap-qcow2-images' }}"
           FLAVOR_LOWER=$(echo "${{ matrix.flavor }}" | tr '[:upper:]' '[:lower:]')
           S3_PREFIX="aap-images/$FLAVOR_LOWER"
@@ -271,7 +320,7 @@ jobs:
           echo "Started export task: $EXPORT_TASK_ID"
 
       - name: Wait for export completion
-        if: steps.check-raw.outputs.raw_exists != 'true'
+        if: steps.check-qcow2.outputs.qcow2_exists != 'true' && steps.check-raw.outputs.raw_exists != 'true'
         id: wait-export
         run: |
           EXPORT_TASK_ID="${{ steps.export-ami.outputs.export_task_id }}"
@@ -343,6 +392,7 @@ jobs:
           fi
 
       - name: Convert raw image to qcow2
+        if: steps.check-qcow2.outputs.qcow2_exists != 'true'
         id: convert-qcow2
         env:
           AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
@@ -522,7 +572,7 @@ jobs:
         run: |
           echo "## AAP Image Build Complete - Flavor: ${{ matrix.flavor }}" >> $GITHUB_STEP_SUMMARY
           echo "**AMI Name:** ${{ steps.get-ami.outputs.final_name }}" >> $GITHUB_STEP_SUMMARY
-          echo "**S3 Location:** ${{ steps.convert-qcow2.outputs.s3_url }}" >> $GITHUB_STEP_SUMMARY
+          echo "**S3 Location:** ${{ steps.convert-qcow2.outputs.s3_url || steps.check-qcow2.outputs.s3_url || 'N/A' }}" >> $GITHUB_STEP_SUMMARY
           echo "**Build Date:** $(date)" >> $GITHUB_STEP_SUMMARY
           echo "**Components:**" >> $GITHUB_STEP_SUMMARY
           echo "- Controller: ${AAP_INCLUDE_CONTROLLER}" >> $GITHUB_STEP_SUMMARY
