@@ -211,8 +211,9 @@ jobs:
             echo "Using version from URL fallback: $AAP_VERSION"
           fi
           
-          # Create final AMI name with version (convert flavor to lowercase)
-          FLAVOR_LOWER=$(echo "${{ matrix.flavor }}" | tr '[:upper:]' '[:lower:]')
+          # Extract flavor from Packer's temp AMI name (e.g., aap-temp-cehm-20260608 -> cehm)
+          TEMP_AMI_NAME=$(aws ec2 describe-images --image-ids "$TEMP_AMI_ID" --query 'Images[0].Name' --output text)
+          FLAVOR_LOWER=$(echo "$TEMP_AMI_NAME" | sed 's/aap-temp-//' | sed 's/-[0-9]*$//')
           FINAL_NAME="aap-$AAP_VERSION-$FLAVOR_LOWER-$(date +%Y%m%d)"
           echo "Final AMI name: $FINAL_NAME"
           
