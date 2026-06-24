@@ -39,12 +39,12 @@ variable "aap_include_eda_controller" {
 
 variable "aap_include_mcp_server" {
     type    = bool
-    default = false
+    default = true
 }
 
 variable "aap_version" {
     type    = string
-    default = "2.5"
+    default = "2.7"
 }
 
 variable "ansible_vars_file" {
