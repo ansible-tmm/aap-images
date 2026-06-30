@@ -216,7 +216,7 @@ jobs:
             echo "AAP_INCLUDE_AUTOMATION_HUB=false" >> $GITHUB_ENV
           fi
 
-          if [[ "$FLAVOR" == *"m"* ]]; then
+          if [ "${{ github.event.inputs.aap_version }}" == "2.6" ] || [ "${{ github.event.inputs.aap_version }}" == "2.7" ]; then
             echo "AAP_INCLUDE_MCP_SERVER=true" >> $GITHUB_ENV
           else
             echo "AAP_INCLUDE_MCP_SERVER=false" >> $GITHUB_ENV
