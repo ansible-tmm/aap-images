@@ -184,6 +184,7 @@ build {
     // Platform install (run as rhel user so containers are created under rhel)
     provisioner "shell" {
         timeout = "90m"
+        expect_disconnect = true
         inline = [
             "if [ -d /tmp/ansible-automation-platform-containerized-setup ]; then",
             "  sudo chown -R rhel:rhel /tmp/ansible-automation-platform-containerized-setup",
