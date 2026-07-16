@@ -66,6 +66,18 @@ on:
         description: 'AWS key pair name for SSH access (optional)'
         required: false
         type: string
+      instance_lifetime:
+        description: 'How long should the instance stay alive?'
+        required: true
+        type: choice
+        options:
+          - '2 days'
+          - '5 days'
+          - '7 days'
+          - '14 days'
+          - '30 days'
+          - 'Never expire'
+        default: '2 days'
       owner:
         description: 'Your name or email (for Owner tag)'
         required: true
@@ -329,9 +341,16 @@ jobs:
           OWNER="${{ github.event.inputs.owner }}"
           VERSION="${{ github.event.inputs.aap_version }}"
           FLAVOR="${{ needs.find-or-build-ami.outputs.flavor }}"
-          EXPIRES_AT=$(date -u -d '+48 hours' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v+48H +%Y-%m-%dT%H:%M:%SZ)
-
-          echo "Launching AMI $AMI_ID for $OWNER (expires: $EXPIRES_AT)"
+          LIFETIME="${{ github.event.inputs.instance_lifetime }}"
+          if [ "$LIFETIME" = "Never expire" ]; then
+            EXPIRES_AT=""
+            echo "Launching AMI $AMI_ID for $OWNER (no expiration)"
+          else
+            DAYS=$(echo "$LIFETIME" | grep -oE '[0-9]+')
+            HOURS=$((DAYS * 24))
+            EXPIRES_AT=$(date -u -d "+${HOURS} hours" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v+${HOURS}H +%Y-%m-%dT%H:%M:%SZ)
+            echo "Launching AMI $AMI_ID for $OWNER (expires: $EXPIRES_AT)"
+          fi
 
           USER_KEY="${{ github.event.inputs.ssh_key_name }}"
           if [ -n "$USER_KEY" ]; then
@@ -357,14 +376,14 @@ jobs:
             --key-name "${{ steps.create-keypair.outputs.key_name }}" \
             $USER_DATA_ARG \
             --block-device-mappings '[{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":50,"VolumeType":"gp3","DeleteOnTermination":true}}]' \
-            --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=aap-${VERSION}-${FLAVOR}-${OWNER}},{Key=owner,Value=${OWNER}},{Key=ExpiresAt,Value=${EXPIRES_AT}},{Key=Project,Value=aap-on-demand},{Key=AAPVersion,Value=${VERSION}},{Key=Flavor,Value=${FLAVOR}}]" \
+            --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=aap-${VERSION}-${FLAVOR}-${OWNER}},{Key=owner,Value=${OWNER}},${EXPIRES_AT:+{Key=ExpiresAt,Value=${EXPIRES_AT}},}{Key=Project,Value=aap-on-demand},{Key=AAPVersion,Value=${VERSION}},{Key=Flavor,Value=${FLAVOR}}]" \
             --associate-public-ip-address \
             --query 'Instances[0].InstanceId' \
             --output text)
 
           echo "Launched instance: $INSTANCE_ID"
           echo "instance_id=$INSTANCE_ID" >> $GITHUB_OUTPUT
-          echo "expires_at=$EXPIRES_AT" >> $GITHUB_OUTPUT
+          echo "expires_at=${EXPIRES_AT:-never}" >> $GITHUB_OUTPUT
 
       - name: Wait for instance to be running
         run: |
@@ -715,7 +734,7 @@ jobs:
             --security-group-ids "$SG_ID" \
             --user-data file:///tmp/portal-userdata.yaml \
             --block-device-mappings '[{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":50,"VolumeType":"gp3","DeleteOnTermination":true}}]' \
-            --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=aap-portal-${OWNER}},{Key=owner,Value=${OWNER}},{Key=ExpiresAt,Value=${EXPIRES_AT}},{Key=Project,Value=aap-on-demand}]" \
+            --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=aap-portal-${OWNER}},{Key=owner,Value=${OWNER}},${EXPIRES_AT:+{Key=ExpiresAt,Value=${EXPIRES_AT}},}{Key=Project,Value=aap-on-demand}]" \
             --associate-public-ip-address \
             --query 'Instances[0].InstanceId' \
             --output text)
@@ -835,7 +854,11 @@ jobs:
           fi
 
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "This instance will be automatically eligible for cleanup after **$EXPIRES**." >> $GITHUB_STEP_SUMMARY
+          if [ "$EXPIRES" = "never" ]; then
+            echo "This instance is set to **never expire** and must be manually terminated." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "This instance will be automatically eligible for cleanup after **$EXPIRES**." >> $GITHUB_STEP_SUMMARY
+          fi
 
       - name: Cleanup workflow key pair
         if: always()
