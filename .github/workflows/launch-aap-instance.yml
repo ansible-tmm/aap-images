@@ -343,12 +343,14 @@ jobs:
           FLAVOR="${{ needs.find-or-build-ami.outputs.flavor }}"
           LIFETIME="${{ github.event.inputs.instance_lifetime }}"
           if [ "$LIFETIME" = "Never expire" ]; then
-            EXPIRES_AT=""
+            EXPIRES_TAG=""
+            EXPIRES_AT="never"
             echo "Launching AMI $AMI_ID for $OWNER (no expiration)"
           else
             DAYS=$(echo "$LIFETIME" | grep -oE '[0-9]+')
             HOURS=$((DAYS * 24))
             EXPIRES_AT=$(date -u -d "+${HOURS} hours" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v+${HOURS}H +%Y-%m-%dT%H:%M:%SZ)
+            EXPIRES_TAG="{Key=ExpiresAt,Value=${EXPIRES_AT}},"
             echo "Launching AMI $AMI_ID for $OWNER (expires: $EXPIRES_AT)"
           fi
 
@@ -376,14 +378,14 @@ jobs:
             --key-name "${{ steps.create-keypair.outputs.key_name }}" \
             $USER_DATA_ARG \
             --block-device-mappings '[{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":50,"VolumeType":"gp3","DeleteOnTermination":true}}]' \
-            --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=aap-${VERSION}-${FLAVOR}-${OWNER}},{Key=owner,Value=${OWNER}},${EXPIRES_AT:+{Key=ExpiresAt,Value=${EXPIRES_AT}},}{Key=Project,Value=aap-on-demand},{Key=AAPVersion,Value=${VERSION}},{Key=Flavor,Value=${FLAVOR}}]" \
+            --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=aap-${VERSION}-${FLAVOR}-${OWNER}},{Key=owner,Value=${OWNER}},${EXPIRES_TAG}{Key=Project,Value=aap-on-demand},{Key=AAPVersion,Value=${VERSION}},{Key=Flavor,Value=${FLAVOR}}]" \
             --associate-public-ip-address \
             --query 'Instances[0].InstanceId' \
             --output text)
 
           echo "Launched instance: $INSTANCE_ID"
           echo "instance_id=$INSTANCE_ID" >> $GITHUB_OUTPUT
-          echo "expires_at=${EXPIRES_AT:-never}" >> $GITHUB_OUTPUT
+          echo "expires_at=$EXPIRES_AT" >> $GITHUB_OUTPUT
 
       - name: Wait for instance to be running
         run: |
@@ -734,7 +736,7 @@ jobs:
             --security-group-ids "$SG_ID" \
             --user-data file:///tmp/portal-userdata.yaml \
             --block-device-mappings '[{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":50,"VolumeType":"gp3","DeleteOnTermination":true}}]' \
-            --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=aap-portal-${OWNER}},{Key=owner,Value=${OWNER}},${EXPIRES_AT:+{Key=ExpiresAt,Value=${EXPIRES_AT}},}{Key=Project,Value=aap-on-demand}]" \
+            --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=aap-portal-${OWNER}},{Key=owner,Value=${OWNER}},${EXPIRES_TAG}{Key=Project,Value=aap-on-demand}]" \
             --associate-public-ip-address \
             --query 'Instances[0].InstanceId' \
             --output text)
