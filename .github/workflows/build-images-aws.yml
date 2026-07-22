@@ -393,7 +393,7 @@ jobs:
             --instance-initiated-shutdown-behavior terminate \
             --block-device-mappings '[{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":200,"VolumeType":"gp3","DeleteOnTermination":true}}]' \
             --user-data file:///tmp/user-data.sh \
-            --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=qcow2-converter},{Key=Purpose,Value=temporary}]" \
+            --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=qcow2-converter},{Key=owner,Value=anshul},{Key=Purpose,Value=temporary},{Key=Project,Value=aap-images}]" \
             --query 'Instances[0].InstanceId' \
             --output text)
           echo "Launched converter instance: $CONVERTER_INSTANCE"
